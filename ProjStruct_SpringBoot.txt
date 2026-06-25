@@ -1,0 +1,157 @@
+	****************
+	* Progetto PAC *
+	****************
+
+1)Struttura SpringBoot
+
+iot-monitoring-system/
+├── src/main/java/com/example/iot/
+│   ├── controller/
+│   │   ├── TelemetryController.java
+│   │   ├── DeviceController.java
+│   │   ├── AlertController.java
+│   │   ├── CommandController.java
+│   │   └── DashboardController.java
+│   │
+│   ├── service/
+│   │   ├── TelemetryService.java
+│   │   ├── DeviceService.java
+│   │   ├── AlertService.java
+│   │   └── CommandService.java
+│   │
+│   ├── repository/
+│   │   ├── TelemetryRepository.java
+│   │   ├── DeviceRepository.java
+│   │   ├── AlertRepository.java
+│   │   └── CommandRepository.java
+│   │
+│   ├── model/
+│   │   ├── Telemetry.java
+│   │   ├── Device.java
+│   │   ├── Alert.java
+│   │   ├── Command.java
+│   │   └── ThresholdConfig.java
+│   │
+│   ├── dto/
+│   │   ├── TelemetryRequest.java
+│   │   ├── TelemetryResponse.java
+│   │   ├── CommandRequest.java	
+│   │   ├── DeviceStatusResponse.java
+│   │   └── AckRequest.java
+│   │
+│   ├── config/
+│   │   └── WebConfig.java
+│   │
+│   └── IotApplication.java
+│
+├── src/main/resources/
+│   ├── templates/
+│   │   ├── dashboard.html
+│   │   ├── devices.html
+│   │   ├── alerts.html
+│   │   └── login.html
+│   │
+│   ├── static/
+│   │   ├── css/
+│   │   └── js/
+│   │
+│   ├── application.properties
+│   └── schema.sql
+│
+└── pom.xml
+
+
+2) Responsabilità dei moduli:
+	~controller -> Gestisce le richieste HTTP:
+		-ricezione telemetrie
+		-consultazione dati
+		-invio comandi
+		-pagine dashboard
+	~service -> Contiene la logica:
+		-validazione
+		-trasformazione dati
+		-gestione allarmi
+		-gestione comandi
+	~repository -> Fa accesso al DB:
+		-salvataggio telemetrie
+		-recupero storico
+		-aggiornamento stato device
+	~model -> Entità del dominio:
+		-Device
+		-Telemetry
+		-Alert
+		-Command
+	~dto -> Oggetti di trasferimento per API REST
+	
+3) API REST
+	~API board → backend
+		1.Invio telemetria (via HTTP) -> POST /api/v1/telemetry
+			Payload (JSON)
+			{
+			  "deviceId": "DEV001",
+			  "timestamp": "2026-06-20T12:00:00Z",
+			  "temperature": 24.5,
+			  "humidity": 51.3,
+			  "pressure": 1007.8,
+			  "battery": 83,
+			  "orientation": "stable"
+			}	
+		2.Heartbeat / stato dispositivo -> POST /api/v1/devices/{deviceId}/heartbeat
+		3.Recupero comandi pendenti -> GET /api/v1/devices/{deviceId}/commands/pending
+		4.Ack comando -> POST /api/v1/devices/{deviceId}/commands/{commandId}/ack
+	~API dashboard → backend 
+		5.Elenco dispositivi -> GET /api/v1/devices
+		6.Ultimo dato dispositivo -> GET /api/v1/devices/{deviceId}/latest
+		7.Storico misure -> GET /api/v1/devices/{deviceId}/measurements?from=...&to=...
+		8.Allarmi -> GET /api/v1/alerts
+		9.Configurazione soglie -> PUT /api/v1/devices/{deviceId}/thresholds
+		10.Invio comando remoto -> POST /api/v1/devices/{deviceId}/commands
+		11.Stato comandi -> GET /api/v1/devices/{deviceId}/commands
+	~API dashboard web server-side
+		Se uso Thymeleaf, posso avere anche API che servono le pagine HTML:
+		12.GET /dashboard
+		13.GET /devices
+		14.GET /alerts
+		
+4) Come collegare tutto alla board in C
+	~ Lato board
+		Il firmware in C deve fare:
+		A. Lettura sensori: temperatura
+							umidità
+							pressione
+							batteria
+							assetto / evento movimento
+		B. Costruzione payload JSON
+			esempio:
+			{
+			  "deviceId": "DEV001",
+			  "timestamp": "2026-06-20T12:00:00Z",
+			  "temperature": 24.5,
+			  "humidity": 51.3,
+			  "pressure": 1007.8,
+			  "battery": 83,
+			  "orientation": "stable"
+			}
+		C. Invio HTTP POST
+			verso: POST /api/v1/telemetry
+		D. Polling dei comandi
+			Ogni tot secondi:
+				GET /api/v1/devices/DEV001/commands/pending
+		E. Esecuzione del comando
+			esempi: cambia frequenza campionamento
+					acquisisci subito
+					reset stato
+		F. Ack
+			POST /api/v1/devices/DEV001/commands/12/ack
+
+5) Flusso completo:
+	1.Board acquisisce
+	2.Board invia al backend
+	3.Backend salva
+	4.Dashboard visualizza
+	5.User invia comando
+	6.Backend salva comando
+	7.Board interroga backend
+	8.Board esegue comando
+	9.Board manda ack
+	10.Dashboard mostra stato aggiornato
