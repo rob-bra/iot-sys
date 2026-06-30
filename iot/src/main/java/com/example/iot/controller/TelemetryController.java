@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController				// dice che questa classe gestisce richieste web REST
-@RequestMapping("/api/v1")	// dice che tutti gli endpoint qui dentro iniziano così
+@RequestMapping("/api/v1")	// dice che tutti gli endpoint qui dentro sono raggiungibili da questo prefisso
 public class TelemetryController {
 
     private final TelemetryService telemetryService;
@@ -20,7 +20,7 @@ public class TelemetryController {
     /* espone endpoint /telemtry per la ricezione di file JSON */
     @PostMapping("/telemetry")		// espone l'endpoint specifico POST "/api/v1/telemetry"
     public Map<String, String> receiveTelemetry(@RequestBody TelemetryRequest request) {
-        telemetryService.saveTelemetry(request);	// salva nel DB il JASON che arriva
+        telemetryService.saveTelemetry(request);	// salva nel DB il JSON che arriva
         return Map.of("status", "ok", "message", "Telemetry saved successfully");
     }
     
