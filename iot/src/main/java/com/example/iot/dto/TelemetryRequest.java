@@ -6,6 +6,8 @@ public class TelemetryRequest {
     private double temperature;
     private double humidity;
     private double pressure;
+    private Integer battery;
+    private String orientation;
 
     public TelemetryRequest() {
     }
@@ -22,7 +24,7 @@ public class TelemetryRequest {
         return timestamp;
     }
 
-    public void setTimestamp(String timestamp) {
+	public void setTimestamp(String timestamp) {
         this.timestamp = timestamp;
     }
 
@@ -49,4 +51,20 @@ public class TelemetryRequest {
     public void setPressure(double pressure) {
         this.pressure = pressure;
     }
+    
+    public Integer getBattery() {
+		return battery;
+	}
+
+	public void setBattery(Integer battery) {
+		this.battery = battery;
+	}
+
+	public String getOrientation() {
+		return orientation;
+	}
+
+	public void setOrientation(String orientation) {
+		this.orientation = orientation;
+	}
 }

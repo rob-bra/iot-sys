@@ -29,4 +29,14 @@ public class TelemetryController {
     public List<Map<String, Object>> getAllTelemetry() {
         return telemetryService.getAllTelemetry();
     }
+    
+    @GetMapping("/devices/{deviceId}/latest")
+    public Map<String, Object> getLatestTelemetry(@PathVariable String deviceId) {
+        return telemetryService.getLatestTelemetryByDeviceId(deviceId);
+    }
+
+    @GetMapping("/devices/{deviceId}/measurements")
+    public List<Map<String, Object>> getTelemetryByDeviceId(@PathVariable String deviceId) {
+        return telemetryService.getTelemetryByDeviceId(deviceId);
+    }
 }

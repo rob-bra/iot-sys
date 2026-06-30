@@ -1,0 +1,35 @@
+// Esempio di telemetrie inviate tramite POST
+Postman: Collection=iot-sys
+ 	    TelemetryData
+	    Method=POST
+	    URL=http://localhost:8080/api/v1/telemetry
+	    Headers: Key=Content-Type
+		     Value=application/json
+	    Body: mando i seguenti JSON 1 alla volta per popolare la tabella:
+{
+  "deviceId": "DEV001",
+  "timestamp": "2026-06-25T11:00:00Z",
+  "temperature": 24.6,
+  "humidity": 50.2,
+  "pressure": 1008.4,
+  "battery": 84,
+  "orientation": "stationary upright"
+}
+{
+  "deviceId": "DEV002",
+  "timestamp": "2026-06-25T11:06:00Z",
+  "temperature": 22.3,
+  "humidity": 55.1,
+  "pressure": 1007.6,
+  "battery": 91,
+  "orientation": "stationary upright"
+}
+{
+  "deviceId": "DEV001",
+  "timestamp": "2026-06-25T11:05:00Z",
+  "temperature": 25.1,
+  "humidity": 49.8,
+  "pressure": 1008.0,
+  "battery": 83,
+  "orientation": "shaken"
+}
