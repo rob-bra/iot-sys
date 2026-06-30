@@ -38,3 +38,15 @@ CREATE TABLE IF NOT EXISTS alerts (
     message TEXT NOT NULL,
     FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
+
+CREATE TABLE IF NOT EXISTS commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    ack_at TEXT,
+    result_message TEXT,
+    FOREIGN KEY (device_id) REFERENCES devices(device_id)
+);
