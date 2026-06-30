@@ -14,10 +14,12 @@ public class TelemetryService {
 
 	private final TelemetryRepository telemetryRepository;	// obj per interagire col DB --> TelemetryRepository
     private final DeviceRepository deviceRepository;
+    private final AlertService alertService;
 
-    public TelemetryService(TelemetryRepository telemetryRepository, DeviceRepository deviceRepository) {
+    public TelemetryService(TelemetryRepository telemetryRepository, DeviceRepository deviceRepository, AlertService alertService) {
         this.telemetryRepository = telemetryRepository;
         this.deviceRepository = deviceRepository;
+        this.alertService = alertService;
     }
 
     /* Salvataggio telemetria nel DB */
@@ -28,6 +30,7 @@ public class TelemetryService {
                 telemetryRequest.getBattery(),
                 telemetryRequest.getTimestamp()
         );
+        alertService.evaluateAlerts(telemetryRequest);
     }
     
     /* Letture dal DB */
