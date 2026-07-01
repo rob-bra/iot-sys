@@ -1,0 +1,99 @@
+POSTMAN --> Headers: Key=Content-Type , Value=application/json
+------------------------------------------------------------------
+Passaggi:
+1) PUT  ->  Settaggio valori soglia per specifico dispositivo
+2) POST ->  Invio misure dei dati
+3) GET  ->  Lettura valori raccolte dallo specifico device
+4) GET  ->  Controllo di eventuali Alerts per valori fuori range
+5) POST ->  Richiesta immediata di acquisizione parametri
+6) GET  ->  Controllo della presenza del comando inviato (stato=PENDING)
+7) GET  ->  Polling: Controllo di presenza del comando nei /pending
+8) POST ->  Esecuzione del comando (EXECUTED) --> risposta con ACK
+9) GET  ->  Controllo della corretta esecuzione del comando (stato=EXECUTED)
+10)
+
+**************************************************************
+1) PUT http://localhost:8080/api/v1/devices/DEV001/thresholds
+{
+    "temperatureMin": 18.0,
+    "temperatureMax": 26.0,
+    "humidityMin": 30.0,
+    "humidityMax": 60.0,
+    "pressureMin": 990.0,
+    "pressureMax": 1020.0 
+}
+
+**************************************************************
+2) POST http://localhost:8080/api/v1/telemetry
+
+~ Valori temp&humid FUORI range
+{
+    "deviceId": "DEV001",
+    "timestamp": "2026-07-01T11:30:00Z",
+    "temperature": 40.5,
+    "humidity": 20,
+    "pressure": 1008.4,
+    "battery": 83,
+    "orientation": "stationary upright"
+}
+
+~ Valori DENTRO al range
+{
+    "deviceId": "DEV001",
+    "timestamp": "2026-07-01T11:33:00Z",
+    "temperature": 30.5,
+    "humidity": 30,
+    "pressure": 1008.4,
+    "battery": 83,
+    "orientation": "stationary upright"
+}
+
+**************************************************************
+3) GET http://localhost:8080/api/v1/devices/DEV001/measurements
+
+[{"id":4,"device_id":"DEV001","timestamp":"2026-07-01T11:30:00Z","temperature":40.5,"humidity":20.0,"pressure":1008.4,"battery":83,"orientation":"stationary upright"},   {"id":3,"device_id":"DEV001","timestamp":"2026-07-01T11:33:00Z","temperature":30.5,"humidity":30.0,"pressure":1008.4,"battery":83,"orientation":"stationary upright"}]
+
+**************************************************************
+4) GET http://localhost:8080/api/v1/alerts
+
+[{"id":3,"device_id":"DEV001","timestamp":"2026-07-01T11:30:00Z","type":"LOW_HUMIDITY","measured_value":20.0,"threshold_value":30.0,"message":"Humidity below minimum threshold"}, {"id":2,"device_id":"DEV001","timestamp":"2026-07-01T11:30:00Z","type":"HIGH_TEMPERATURE","measured_value":40.5,"threshold_value":26.0,"message":"Temperature above maximum threshold"}, {"id":1,"device_id":"DEV001","timestamp":"2026-07-01T11:33:00Z","type":"HIGH_TEMPERATURE","measured_value":30.5,"threshold_value":26.0,"message":"Temperature above maximum threshold"}]
+
+**************************************************************
+5) POST http://localhost:8080/api/v1/devices/DEV001/commands
+
+{
+    "type": "FORCE_MEASUREMENT",
+    "payload": "immediate"
+}
+
+**************************************************************
+6) GET http://localhost:8080/api/v1/devices/DEV001/commands
+
+~ stato del comando: "PENDING"
+[{"id":1,"device_id":"DEV001","type":"FORCE_MEASUREMENT","payload":"immediate","status":"PENDING","created_at":"2026-07-01T14:21:35.978598300Z","ack_at":null,"result_message":null}]
+
+**************************************************************
+7) GET http://localhost:8080/api/v1/devices/DEV001/commands/pending
+
+[{"id":1,"device_id":"DEV001","type":"FORCE_MEASUREMENT","payload":"immediate","status":"PENDING","created_at":"2026-07-01T14:21:35.978598300Z","ack_at":null,"result_message":null}]
+
+**************************************************************
+8) POST http://localhost:8080/api/v1/devices/DEV001/commands/2/ack
+
+{
+    "status": "EXECUTED",
+    "ackAt": "2026-07-01T16:0:00Z",
+    "resultMessage": "Measurement executed successfully"
+}
+
+**************************************************************
+9) GET http://localhost:8080/api/v1/devices/DEV001/commands
+
+[{"id":1,"device_id":"DEV001","type":"FORCE_MEASUREMENT","payload":"immediate","status":"EXECUTED","created_at":"2026-07-01T14:21:35.978598300Z","ack_at":"2026-07-01T16:0:00Z","result_message":"Measurement executed successfully"}]
+
+
+
+
+
+
+
