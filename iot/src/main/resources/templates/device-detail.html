@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Device Detail</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <h1 th:text="'Dettaglio dispositivo: ' + ${deviceId}">Dettaglio dispositivo</h1>
+
+    <p>
+        <a th:href="@{/}">Home</a> |
+        <a th:href="@{/devices-page}">Torna ai dispositivi</a>
+    </p>
+
+    <h2>Ultima misura</h2>
+    <div th:if="${latestTelemetry != null}">
+        <p><b>Timestamp:</b> <span th:text="${latestTelemetry.timestamp}"></span></p>
+        <p><b>Temperatura:</b> <span th:text="${latestTelemetry.temperature}"></span></p>
+        <p><b>Umidità:</b> <span th:text="${latestTelemetry.humidity}"></span></p>
+        <p><b>Pressione:</b> <span th:text="${latestTelemetry.pressure}"></span></p>
+        <p><b>Batteria:</b> <span th:text="${latestTelemetry.battery}"></span></p>
+        <p><b>Orientazione:</b> <span th:text="${latestTelemetry.orientation}"></span></p>
+    </div>
+    <div th:if="${latestTelemetry == null}">
+        <p>Nessuna misura disponibile.</p>
+    </div>
+
+    <h2>Soglie</h2>
+    <div th:if="${thresholds != null}">
+        <p><b>Temperature min:</b> <span th:text="${thresholds.temperature_min}"></span></p>
+        <p><b>Temperature max:</b> <span th:text="${thresholds.temperature_max}"></span></p>
+        <p><b>Humidity min:</b> <span th:text="${thresholds.humidity_min}"></span></p>
+        <p><b>Humidity max:</b> <span th:text="${thresholds.humidity_max}"></span></p>
+        <p><b>Pressure min:</b> <span th:text="${thresholds.pressure_min}"></span></p>
+        <p><b>Pressure max:</b> <span th:text="${thresholds.pressure_max}"></span></p>
+    </div>
+    <div th:if="${thresholds == null}">
+        <p>Nessuna soglia configurata.</p>
+    </div>
+
+    <h2>Allarmi</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Type</th>
+                <th>Measured</th>
+                <th>Threshold</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="alert : ${alerts}">
+                <td th:text="${alert.id}">1</td>
+                <td th:text="${alert.timestamp}">time</td>
+                <td th:text="${alert.type}">HIGH_TEMPERATURE</td>
+                <td th:text="${alert.measured_value}">30</td>
+                <td th:text="${alert.threshold_value}">26</td>
+                <td th:text="${alert.message}">msg</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Storico misure</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Temperature</th>
+                <th>Humidity</th>
+                <th>Pressure</th>
+                <th>Battery</th>
+                <th>Orientation</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="m : ${measurements}">
+                <td th:text="${m.id}">1</td>
+                <td th:text="${m.timestamp}">time</td>
+                <td th:text="${m.temperature}">24</td>
+                <td th:text="${m.humidity}">50</td>
+                <td th:text="${m.pressure}">1008</td>
+                <td th:text="${m.battery}">80</td>
+                <td th:text="${m.orientation}">stable</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Comandi</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Payload</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Ack At</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="cmd : ${commands}">
+                <td th:text="${cmd.id}">1</td>
+                <td th:text="${cmd.type}">FORCE_MEASUREMENT</td>
+                <td th:text="${cmd.payload}">immediate</td>
+                <td th:text="${cmd.status}">PENDING</td>
+                <td th:text="${cmd.created_at}">created</td>
+                <td th:text="${cmd.ack_at}">ack</td>
+                <td th:text="${cmd.result_message}">ok</td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>
