@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-@RestController
+@RestController		 // @RestController = restituzione in formato REST --> JSON
 @RequestMapping("/api/v1")
 public class DeviceController {
 
