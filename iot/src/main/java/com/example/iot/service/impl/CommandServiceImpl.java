@@ -11,33 +11,70 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Implementazione concreta del service dedicato ai comandi remoti.
+ * <p>
+ * Gestisce la creazione, la consultazione e l'aggiornamento dello stato dei
+ * comandi inviati ai dispositivi.
+ */
 @Service
 public class CommandServiceImpl implements CommandService {
 
-    private final CommandRepository commandRepository;
+	private final CommandRepository commandRepository;
 
-    public CommandServiceImpl(CommandRepository commandRepository) {
-        this.commandRepository = commandRepository;
-    }
+	/**
+	 * Costruisce l'implementazione del servizio dedicato ai comandi remoti.
+	 *
+	 * @param commandRepository il repository dei comandi remoti
+	 */
+	public CommandServiceImpl(CommandRepository commandRepository) {
+		this.commandRepository = commandRepository;
+	}
 
-    @Override
-    public void createCommand(String deviceId, CommandRequest request) {
-        String createdAt = Instant.now().toString();
-        commandRepository.createCommand(deviceId, request, createdAt);
-    }
+	/**
+	 * Crea un nuovo comando remoto per il dispositivo specificato, valorizzando
+	 * automaticamente l'istante di creazione.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @param request  il payload contenente il comando da registrare
+	 */
+	@Override
+	public void createCommand(String deviceId, CommandRequest request) {
+		String createdAt = Instant.now().toString();
+		commandRepository.createCommand(deviceId, request, createdAt);
+	}
 
-    @Override
-    public List<Map<String, Object>> getCommandsByDeviceId(String deviceId) {
-        return commandRepository.findCommandsByDeviceId(deviceId);
-    }
+	/**
+	 * Restituisce tutti i comandi associati al dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la lista dei comandi del dispositivo
+	 */
+	@Override
+	public List<Map<String, Object>> getCommandsByDeviceId(String deviceId) {
+		return commandRepository.findCommandsByDeviceId(deviceId);
+	}
 
-    @Override
-    public List<Map<String, Object>> getPendingCommandsByDeviceId(String deviceId) {
-        return commandRepository.findPendingCommandsByDeviceId(deviceId);
-    }
+	/**
+	 * Restituisce i comandi con stato pendente per il dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la lista dei comandi pendenti
+	 */
+	@Override
+	public List<Map<String, Object>> getPendingCommandsByDeviceId(String deviceId) {
+		return commandRepository.findPendingCommandsByDeviceId(deviceId);
+	}
 
-    @Override
-    public void ackCommand(Long commandId, CommandAckRequest ackRequest) {
-        commandRepository.ackCommand(commandId, ackRequest);
-    }
+	/**
+	 * Registra l'esito dell'esecuzione di un comando remoto.
+	 *
+	 * @param commandId  l'identificativo del comando
+	 * @param ackRequest il payload contenente stato, timestamp di ack e messaggio
+	 *                   di risultato
+	 */
+	@Override
+	public void ackCommand(Long commandId, CommandAckRequest ackRequest) {
+		commandRepository.ackCommand(commandId, ackRequest);
+	}
 }

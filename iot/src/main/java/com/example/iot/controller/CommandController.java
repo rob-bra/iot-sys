@@ -8,58 +8,79 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Controller REST dedicato alla gestione dei comandi remoti inviati ai
+ * dispositivi.
+ * <p>
+ * Espone endpoint per la creazione dei comandi, la consultazione dello storico
+ * e dei comandi pendenti, nonché per la ricezione degli acknowledgement inviati
+ * dal device.
+ */
 @RestController
 @RequestMapping("/api/v1")
 public class CommandController {
 
-    private final CommandService commandService;
+	private final CommandService commandService;
 
-    public CommandController(CommandService commandService) {
-        this.commandService = commandService;
-    }
+	/**
+	 * Costruisce il controller dei comandi remoti inizializzando il servizio
+	 * applicativo dedicato alla loro gestione.
+	 *
+	 * @param commandService il servizio dedicato ai comandi remoti
+	 */
+	public CommandController(CommandService commandService) {
+		this.commandService = commandService;
+	}
 
-    @PostMapping("/devices/{deviceId}/commands")
-    public Map<String, String> createCommand(@PathVariable String deviceId,
-                                             @RequestBody CommandRequest request) {
-        commandService.createCommand(deviceId, request);
-        return Map.of("status", "ok", "message", "Command created successfully");
-    }
+	/**
+	 * Crea un nuovo comando remoto (inviabile da dashboard) destinato al
+	 * dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo destinatario del comando
+	 * @param request  il payload contenente tipo e contenuto del comando
+	 * @return una mappa con l'esito della creazione del comando
+	 */
+	@PostMapping("/devices/{deviceId}/commands")
+	public Map<String, String> createCommand(@PathVariable String deviceId, @RequestBody CommandRequest request) {
+		commandService.createCommand(deviceId, request);
+		return Map.of("status", "ok", "message", "Command created successfully");
+	}
 
-    @GetMapping("/devices/{deviceId}/commands")
-    public List<Map<String, Object>> getCommandsByDeviceId(@PathVariable String deviceId) {
-        return commandService.getCommandsByDeviceId(deviceId);
-    }
+	/**
+	 * Restituisce tutti i comandi associati al dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la lista dei comandi registrati per il dispositivo
+	 */
+	@GetMapping("/devices/{deviceId}/commands")
+	public List<Map<String, Object>> getCommandsByDeviceId(@PathVariable String deviceId) {
+		return commandService.getCommandsByDeviceId(deviceId);
+	}
 
-    @GetMapping("/devices/{deviceId}/commands/pending")
-    public List<Map<String, Object>> getPendingCommandsByDeviceId(@PathVariable String deviceId) {
-        return commandService.getPendingCommandsByDeviceId(deviceId);
-    }
+	/**
+	 * Restituisce i comandi ancora pendenti per il dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la lista dei comandi con stato PENDING
+	 */
+	@GetMapping("/devices/{deviceId}/commands/pending")
+	public List<Map<String, Object>> getPendingCommandsByDeviceId(@PathVariable String deviceId) {
+		return commandService.getPendingCommandsByDeviceId(deviceId);
+	}
 
-    @PostMapping("/devices/{deviceId}/commands/{commandId}/ack")
-    public Map<String, String> ackCommand(@PathVariable String deviceId,
-                                          @PathVariable Long commandId,
-                                          @RequestBody CommandAckRequest request) {
-        commandService.ackCommand(commandId, request);
-        return Map.of("status", "ok", "message", "Command acknowledged successfully");
-    }
+	/**
+	 * Registra l'esito dell'esecuzione di un comando remoto inviato al dispositivo.
+	 *
+	 * @param deviceId  l'identificativo del dispositivo
+	 * @param commandId l'identificativo del comando da aggiornare
+	 * @param request   il payload contenente stato, istante di ack e messaggio di
+	 *                  risultato
+	 * @return una mappa con l'esito dell'aggiornamento del comando
+	 */
+	@PostMapping("/devices/{deviceId}/commands/{commandId}/ack")
+	public Map<String, String> ackCommand(@PathVariable String deviceId, @PathVariable Long commandId,
+			@RequestBody CommandAckRequest request) {
+		commandService.ackCommand(commandId, request);
+		return Map.of("status", "ok", "message", "Command acknowledged successfully");
+	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

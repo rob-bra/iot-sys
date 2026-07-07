@@ -10,125 +10,149 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Implementazione concreta del service dedicato agli allarmi.
+ * <p>
+ * Contiene la logica applicativa necessaria a confrontare i valori di
+ * telemetria con le soglie configurate e a generare allarmi in caso di
+ * superamento dei limiti previsti.
+ */
 @Service
 public class AlertServiceImpl implements AlertService {
 
-    private final AlertRepository alertRepository;
-    private final ThresholdRepository thresholdRepository;
+	private final AlertRepository alertRepository;
+	private final ThresholdRepository thresholdRepository;
 
-    public AlertServiceImpl(AlertRepository alertRepository, ThresholdRepository thresholdRepository) {
-        this.alertRepository = alertRepository;
-        this.thresholdRepository = thresholdRepository;
-    }
+	/**
+	 * Costruisce l'implementazione del servizio dedicato agli allarmi
+	 * inizializzando i repository necessari alla valutazione e persistenza degli
+	 * eventi di allarme.
+	 *
+	 * @param alertRepository     il repository degli allarmi
+	 * @param thresholdRepository il repository delle soglie
+	 */
+	public AlertServiceImpl(AlertRepository alertRepository, ThresholdRepository thresholdRepository) {
+		this.alertRepository = alertRepository;
+		this.thresholdRepository = thresholdRepository;
+	}
 
-    @Override
-    public void evaluateAlerts(TelemetryRequest telemetry) {
-        Map<String, Object> thresholds = thresholdRepository.findThresholdsByDeviceId(telemetry.getDeviceId());
+	/**
+	 * Valuta la telemetria ricevuta rispetto alle soglie configurate e genera
+	 * eventuali allarmi.
+	 *
+	 * @param telemetry la telemetria da verificare
+	 */
+	@Override
+	public void evaluateAlerts(TelemetryRequest telemetry) {
+		Map<String, Object> thresholds = thresholdRepository.findThresholdsByDeviceId(telemetry.getDeviceId());
 
-        if (thresholds == null) {
-            return;
-        }
+		if (thresholds == null) {
+			return;
+		}
 
-        checkTemperature(telemetry, thresholds);
-        checkHumidity(telemetry, thresholds);
-        checkPressure(telemetry, thresholds);
-    }
+		checkTemperature(telemetry, thresholds);
+		checkHumidity(telemetry, thresholds);
+		checkPressure(telemetry, thresholds);
+	}
 
-    private void checkTemperature(TelemetryRequest telemetry, Map<String, Object> thresholds) {
-        Double min = getDouble(thresholds.get("temperature_min"));
-        Double max = getDouble(thresholds.get("temperature_max"));
+	/**
+	 * Verifica se il valore della temperatura supera le soglie configurate e genera
+	 * eventuali allarmi di temperatura.
+	 *
+	 * @param telemetry  la telemetria da analizzare
+	 * @param thresholds la configurazione delle soglie del dispositivo
+	 */
+	private void checkTemperature(TelemetryRequest telemetry, Map<String, Object> thresholds) {
+		Double min = getDouble(thresholds.get("temperature_min"));
+		Double max = getDouble(thresholds.get("temperature_max"));
 
-        if (min != null && telemetry.getTemperature() < min) {
-            alertRepository.saveAlert(
-                    telemetry.getDeviceId(),
-                    telemetry.getTimestamp(),
-                    "LOW_TEMPERATURE",
-                    telemetry.getTemperature(),
-                    min,
-                    "Temperature below minimum threshold"
-            );
-        }
+		if (min != null && telemetry.getTemperature() < min) {
+			alertRepository.saveAlert(telemetry.getDeviceId(), telemetry.getTimestamp(), "LOW_TEMPERATURE",
+					telemetry.getTemperature(), min, "Temperature below minimum threshold");
+		}
 
-        if (max != null && telemetry.getTemperature() > max) {
-            alertRepository.saveAlert(
-                    telemetry.getDeviceId(),
-                    telemetry.getTimestamp(),
-                    "HIGH_TEMPERATURE",
-                    telemetry.getTemperature(),
-                    max,
-                    "Temperature above maximum threshold"
-            );
-        }
-    }
+		if (max != null && telemetry.getTemperature() > max) {
+			alertRepository.saveAlert(telemetry.getDeviceId(), telemetry.getTimestamp(), "HIGH_TEMPERATURE",
+					telemetry.getTemperature(), max, "Temperature above maximum threshold");
+		}
+	}
 
-    private void checkHumidity(TelemetryRequest telemetry, Map<String, Object> thresholds) {
-        Double min = getDouble(thresholds.get("humidity_min"));
-        Double max = getDouble(thresholds.get("humidity_max"));
+	/**
+	 * Verifica se il valore dell'umidità supera le soglie configurate e genera
+	 * eventuali allarmi di umidità.
+	 *
+	 * @param telemetry  la telemetria da analizzare
+	 * @param thresholds la configurazione delle soglie del dispositivo
+	 */
+	private void checkHumidity(TelemetryRequest telemetry, Map<String, Object> thresholds) {
+		Double min = getDouble(thresholds.get("humidity_min"));
+		Double max = getDouble(thresholds.get("humidity_max"));
 
-        if (min != null && telemetry.getHumidity() < min) {
-            alertRepository.saveAlert(
-                    telemetry.getDeviceId(),
-                    telemetry.getTimestamp(),
-                    "LOW_HUMIDITY",
-                    telemetry.getHumidity(),
-                    min,
-                    "Humidity below minimum threshold"
-            );
-        }
+		if (min != null && telemetry.getHumidity() < min) {
+			alertRepository.saveAlert(telemetry.getDeviceId(), telemetry.getTimestamp(), "LOW_HUMIDITY",
+					telemetry.getHumidity(), min, "Humidity below minimum threshold");
+		}
 
-        if (max != null && telemetry.getHumidity() > max) {
-            alertRepository.saveAlert(
-                    telemetry.getDeviceId(),
-                    telemetry.getTimestamp(),
-                    "HIGH_HUMIDITY",
-                    telemetry.getHumidity(),
-                    max,
-                    "Humidity above maximum threshold"
-            );
-        }
-    }
+		if (max != null && telemetry.getHumidity() > max) {
+			alertRepository.saveAlert(telemetry.getDeviceId(), telemetry.getTimestamp(), "HIGH_HUMIDITY",
+					telemetry.getHumidity(), max, "Humidity above maximum threshold");
+		}
+	}
 
-    private void checkPressure(TelemetryRequest telemetry, Map<String, Object> thresholds) {
-        Double min = getDouble(thresholds.get("pressure_min"));
-        Double max = getDouble(thresholds.get("pressure_max"));
+	/**
+	 * Verifica se il valore della pressione supera le soglie configurate e genera
+	 * eventuali allarmi di pressione.
+	 *
+	 * @param telemetry  la telemetria da analizzare
+	 * @param thresholds la configurazione delle soglie del dispositivo
+	 */
+	private void checkPressure(TelemetryRequest telemetry, Map<String, Object> thresholds) {
+		Double min = getDouble(thresholds.get("pressure_min"));
+		Double max = getDouble(thresholds.get("pressure_max"));
 
-        if (min != null && telemetry.getPressure() < min) {
-            alertRepository.saveAlert(
-                    telemetry.getDeviceId(),
-                    telemetry.getTimestamp(),
-                    "LOW_PRESSURE",
-                    telemetry.getPressure(),
-                    min,
-                    "Pressure below minimum threshold"
-            );
-        }
+		if (min != null && telemetry.getPressure() < min) {
+			alertRepository.saveAlert(telemetry.getDeviceId(), telemetry.getTimestamp(), "LOW_PRESSURE",
+					telemetry.getPressure(), min, "Pressure below minimum threshold");
+		}
 
-        if (max != null && telemetry.getPressure() > max) {
-            alertRepository.saveAlert(
-                    telemetry.getDeviceId(),
-                    telemetry.getTimestamp(),
-                    "HIGH_PRESSURE",
-                    telemetry.getPressure(),
-                    max,
-                    "Pressure above maximum threshold"
-            );
-        }
-    }
+		if (max != null && telemetry.getPressure() > max) {
+			alertRepository.saveAlert(telemetry.getDeviceId(), telemetry.getTimestamp(), "HIGH_PRESSURE",
+					telemetry.getPressure(), max, "Pressure above maximum threshold");
+		}
+	}
 
-    private Double getDouble(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return ((Number) value).doubleValue();
-    }
+	/**
+	 * Converte un valore generico ottenuto dal database in un Double, restituendo
+	 * null se il valore di origine è assente.
+	 *
+	 * @param value il valore da convertire
+	 * @return il valore convertito in Double oppure null
+	 */
+	private Double getDouble(Object value) {
+		if (value == null) {
+			return null;
+		}
+		return ((Number) value).doubleValue();
+	}
 
-    @Override
-    public List<Map<String, Object>> getAllAlerts() {
-        return alertRepository.findAllAlerts();
-    }
+	/**
+	 * Restituisce tutti gli allarmi memorizzati nel sistema.
+	 *
+	 * @return la lista completa degli allarmi
+	 */
+	@Override
+	public List<Map<String, Object>> getAllAlerts() {
+		return alertRepository.findAllAlerts();
+	}
 
-    @Override
-    public List<Map<String, Object>> getAlertsByDeviceId(String deviceId) {
-        return alertRepository.findAlertsByDeviceId(deviceId);
-    }
+	/**
+	 * Restituisce gli allarmi associati al dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la lista degli allarmi del dispositivo
+	 */
+	@Override
+	public List<Map<String, Object>> getAlertsByDeviceId(String deviceId) {
+		return alertRepository.findAlertsByDeviceId(deviceId);
+	}
 }

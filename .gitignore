@@ -25,7 +25,8 @@ Thumbs.db
 # ===== Optional local DB =====
 # **/*.db
 
-
+# ===== Generated Javadoc =====
+iot/doc
 
 
 

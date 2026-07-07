@@ -1,65 +1,133 @@
 package com.example.iot.dto;
 
 /**
- * Struttura del tipo di dato dell'oggetto di tipo TresholdRequest
- * */
+ * Data Transfer Object utilizzato per la configurazione delle soglie di allarme
+ * associate a un dispositivo.
+ * <p>
+ * Contiene i limiti minimi e massimi per temperatura, umidità e pressione.
+ * 
+ * Struttura del tipo di dato dell'oggetto di tipo TresholdRequest.
+ */
 public class ThresholdRequest {
 
-    private Double temperatureMin;
-    private Double temperatureMax;
-    private Double humidityMin;
-    private Double humidityMax;
-    private Double pressureMin;
-    private Double pressureMax;
+	private Double temperatureMin;
+	private Double temperatureMax;
+	private Double humidityMin;
+	private Double humidityMax;
+	private Double pressureMin;
+	private Double pressureMax;
 
-    public ThresholdRequest() {
-    }
+	/**
+	 * Costruttore di default richiesto dal framework per la deserializzazione JSON.
+	 */
+	public ThresholdRequest() {
+	}
 
-    public Double getTemperatureMin() {
-        return temperatureMin;
-    }
+	/**
+	 * Restituisce la soglia minima di temperatura.
+	 *
+	 * @return la soglia minima di temperatura
+	 */
+	public Double getTemperatureMin() {
+		return temperatureMin;
+	}
 
-    public void setTemperatureMin(Double temperatureMin) {
-        this.temperatureMin = temperatureMin;
-    }
+	/**
+	 * Imposta la soglia minima di temperatura.
+	 *
+	 * @param temperatureMin la soglia minima di temperatura
+	 */
+	public void setTemperatureMin(Double temperatureMin) {
+		this.temperatureMin = temperatureMin;
+	}
 
-    public Double getTemperatureMax() {
-        return temperatureMax;
-    }
+	/**
+	 * Restituisce la soglia massima di temperatura.
+	 *
+	 * @return la soglia massima di temperatura
+	 */
+	public Double getTemperatureMax() {
+		return temperatureMax;
+	}
 
-    public void setTemperatureMax(Double temperatureMax) {
-        this.temperatureMax = temperatureMax;
-    }
+	/**
+	 * Imposta la soglia massima di temperatura.
+	 *
+	 * @param temperatureMax la soglia massima di temperatura
+	 */
+	public void setTemperatureMax(Double temperatureMax) {
+		this.temperatureMax = temperatureMax;
+	}
 
-    public Double getHumidityMin() {
-        return humidityMin;
-    }
+	/**
+	 * Restituisce la soglia minima di umidità.
+	 *
+	 * @return la soglia minima di umidità
+	 */
+	public Double getHumidityMin() {
+		return humidityMin;
+	}
 
-    public void setHumidityMin(Double humidityMin) {
-        this.humidityMin = humidityMin;
-    }
+	/**
+	 * Imposta la soglia minima di umidità.
+	 *
+	 * @param humidityMin la soglia minima di umidità
+	 */
+	public void setHumidityMin(Double humidityMin) {
+		this.humidityMin = humidityMin;
+	}
 
-    public Double getHumidityMax() {
-        return humidityMax;
-    }
+	/**
+	 * Restituisce la soglia massima di umidità.
+	 *
+	 * @return la soglia massima di umidità
+	 */
+	public Double getHumidityMax() {
+		return humidityMax;
+	}
 
-    public void setHumidityMax(Double humidityMax) {
-        this.humidityMax = humidityMax;
-    }
+	/**
+	 * Imposta la soglia massima di umidità.
+	 *
+	 * @param humidityMax la soglia massima di umidità
+	 */
+	public void setHumidityMax(Double humidityMax) {
+		this.humidityMax = humidityMax;
+	}
 
-    public Double getPressureMin() {
-        return pressureMin;
-    }
+	/**
+	 * Restituisce la soglia minima di pressione.
+	 *
+	 * @return la soglia minima di pressione
+	 */
+	public Double getPressureMin() {
+		return pressureMin;
+	}
 
-    public void setPressureMin(Double pressureMin) {
-        this.pressureMin = pressureMin;
-    }
+	/**
+	 * Imposta la soglia minima di pressione.
+	 *
+	 * @param pressureMin la soglia minima di pressione
+	 */
+	public void setPressureMin(Double pressureMin) {
+		this.pressureMin = pressureMin;
+	}
 
-    public Double getPressureMax() {
-        return pressureMax;
-    }
+	/**
+	 * Restituisce la soglia massima di pressione.
+	 *
+	 * @return la soglia massima di pressione
+	 */
+	public Double getPressureMax() {
+		return pressureMax;
+	}
 
-    public void setPressureMax(Double pressureMax) {
-        this.pressureMax = pressureMax;
-    }
+	/**
+	 * Imposta la soglia massima di pressione.
+	 *
+	 * @param pressureMax la soglia massima di pressione
+	 */
+	public void setPressureMax(Double pressureMax) {
+		this.pressureMax = pressureMax;
+	}
 }
