@@ -34,3 +34,27 @@ a {
 a:hover {
     text-decoration: underline;
 }
+
+form {
+    background: white;
+    padding: 15px;
+    margin-bottom: 25px;
+    border: 1px solid #ccc;
+}
+
+input, select, button {
+    padding: 6px;
+    margin-top: 5px;
+    margin-bottom: 10px;
+}
+
+button {
+    background-color: #1f4e79;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #163a5a;
+}

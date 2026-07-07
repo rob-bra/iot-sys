@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>All Alerts</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <h1>Tutti gli allarmi</h1>
+
+    <p>
+        <a th:href="@{/}">Home</a> |
+        <a th:href="@{/devices-page}">Dispositivi</a>
+    </p>
+
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Device ID</th>
+                <th>Timestamp</th>
+                <th>Type</th>
+                <th>Measured Value</th>
+                <th>Threshold Value</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="alert : ${alerts}">
+                <td th:text="${alert.id}">1</td>
+                <td th:text="${alert.device_id}">DEV001</td>
+                <td th:text="${alert.timestamp}">time</td>
+                <td th:text="${alert.type}">HIGH_TEMPERATURE</td>
+                <td th:text="${alert.measured_value}">30.5</td>
+                <td th:text="${alert.threshold_value}">26.0</td>
+                <td th:text="${alert.message}">msg</td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>

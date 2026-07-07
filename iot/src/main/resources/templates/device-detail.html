@@ -38,6 +38,29 @@
         <p>Nessuna soglia configurata.</p>
     </div>
 
+	<h2>Configura soglie</h2>
+	<form th:action="@{/devices-page/{id}/thresholds(id=${deviceId})}" method="post">
+	    <label>Temperature Min:</label>
+	    <input type="number" step="0.1" name="temperatureMin"><br><br>
+
+	    <label>Temperature Max:</label>
+	    <input type="number" step="0.1" name="temperatureMax"><br><br>
+
+	    <label>Humidity Min:</label>
+	    <input type="number" step="0.1" name="humidityMin"><br><br>
+
+	    <label>Humidity Max:</label>
+	    <input type="number" step="0.1" name="humidityMax"><br><br>
+
+	    <label>Pressure Min:</label>
+	    <input type="number" step="0.1" name="pressureMin"><br><br>
+
+	    <label>Pressure Max:</label>
+	    <input type="number" step="0.1" name="pressureMax"><br><br>
+
+	    <button type="submit">Salva soglie</button>
+	</form>
+	
     <h2>Allarmi</h2>
     <table border="1">
         <thead>
@@ -113,5 +136,26 @@
             </tr>
         </tbody>
     </table>
+	
+	<h2>Invia comando remoto</h2>
+	<form th:action="@{/devices-page/{id}/commands(id=${deviceId})}" method="post">
+	    <label>Tipo comando:</label>
+	    <select name="type">
+	        <option value="FORCE_MEASUREMENT">FORCE_MEASUREMENT</option>
+	        <option value="SET_SAMPLING_PERIOD">SET_SAMPLING_PERIOD</option>
+	        <option value="RESET_DEVICE">RESET_DEVICE</option>
+	        <option value="ENABLE_EVENT_DETECTION">ENABLE_EVENT_DETECTION</option>
+	    </select><br><br>
+
+	    <label>Payload:</label>
+	    <input type="text" name="payload"><br><br>
+
+	    <button type="submit">Invia comando</button>
+	</form>
+	
+	<h2>Comando rapido</h2>
+	<form th:action="@{/devices-page/{id}/force-measurement(id=${deviceId})}" method="post">
+	    <button type="submit">Richiedi misura immediata</button>
+	</form>
 </body>
 </html>
