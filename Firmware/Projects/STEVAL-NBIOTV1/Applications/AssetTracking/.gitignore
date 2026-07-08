@@ -1,0 +1,6 @@
+EC_Lib
+EC_Lib_Cust
+STM32CubeIDE/Debug
+STM32CubeIDE/.settings
+.mxproject
+*.launch
