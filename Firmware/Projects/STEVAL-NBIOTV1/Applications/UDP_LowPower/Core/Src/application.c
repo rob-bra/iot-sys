@@ -42,15 +42,51 @@
 /* Private typedef -----------------------------------------------------------*/
 
 /* Application states */
-typedef enum UDP_API_State
+typedef enum APP_State_t
 {
-  UdpApiState_Init = 0,
-  UdpApiState_Idle,
-  UdpApiState_GoToSleep,
-  UdpApiState_RtcInitSequence,
-  UdpApiState_TransferSequence,
-  UdpApiState_TransferComplete,
-} UDP_API_State;
+  AppState_Init = 0,
+  AppState_RtcInitSequence,
+  AppState_Idle,
+  AppState_SendTelemetry,
+//  AppState_HTTP_Open,
+//  AppState_HTTP_SendData,
+//  AppState_HTTP_WaitResponse,
+//  AppState_HTTP_Close,
+//  AppState_PollCommands,
+//  AppState_SendAck,
+  AppState_GoToSleep
+} APP_State_t;
+
+/* struct per il payload dei dati telemetrici da inviare al server */
+typedef struct
+{
+  char deviceId[32];
+  char timestamp[32];
+  float temperature;
+  float humidity;
+  float pressure;
+  uint8_t battery;
+  char orientation[32];
+} TelemetryPayload_t;
+
+/* struct per il payload dei comandi pendenti da inviare al server */
+typedef struct
+{
+  int id;
+  char device_id[32];
+  char type[32];
+  char payload[64];
+  char status[16];
+  char created_at[32];
+} PendingCommand_t;
+
+/* struct per il payload di ack dei comandi eseguiti da inviare al server */
+typedef struct
+{
+  char status[16];
+  char ackAt[32];
+  char resultMessage[128];
+} CommandAckPayload_t;
 
 /* Private define ------------------------------------------------------------*/
 
@@ -60,20 +96,32 @@ typedef enum UDP_API_State
 /* Uncomment one of the following lines to enable the corresponding low power state */
 //#define LOW_POWER_MODE_STOP2
 #define LOW_POWER_MODE_SLEEP
+#define APP_LOG_PREFIX            "\r\n*** "
 
 /* Select the application sleep time */
 //#define APPLICATION_SLEEP_TIME_S        50U     //----------------------------------------- MODIFICATO GIU' PER TIMING DI INVIO MEX UDP
-/* ECHO server IP address and port */
-//#define TCP_SERVER_ADDRESS        "domain.name"
-#define UDP_SERVER_IP             "31.14.134.210"
-#define UDP_SERVER_PORT           1234U
+//#define HTTP_SERVER_IP                "httpbin.org"
+#define HTTP_SERVER_IP                  "10.68.87.69"
+#define HTTP_SERVER_PORT                8080
+#define TELEMETRY_PATH                  "/api/v1/telemetry"
+#define COMMANDS_PENDING_PATH           "/api/v1/devices/%s/commands/pending" //fmt =
+#define COMMAND_ACK_PATH                "/api/v1/devices/%s/commands/%d/ack"
 
-/* No security profile used */
-#define SECURE_ID              -1
+#define HTTP_SECURE_ID                  -1    // -1 for HTTP, 0..15 for HTTPS
+#define HTTP_KEEP_ALIVE                  0
+#define MAX_HTTP_RESPONSE_WAIT_MS       20000U
+#define HTTP_TIMEOUT                    20000U
+#define HTTP_POLL_DELAY_MS              100U
+
+#define HTTP_RAW_REQUEST_BUF_SIZE       768U
+#define HTTP_RESPONSE_BUF_SIZE          768U
+#define JSON_PAYLOAD_BUF_SIZE           384U
+
+#define DEVICE_ID                       "DEV001"
 
 /* ----------------------------------------*/
 
-/* Sleep time converted to us */
+/* Sleep time converted to us (microseconds) */
 #define APPLICATION_SLEEP_TIME_US       (APPLICATION_SLEEP_TIME_S*1000000)
 
 #define APP_LPTIM                       (&hlptim1)
@@ -89,22 +137,20 @@ typedef enum UDP_API_State
 #error "LPTIM_PERIOD too big. Try reducing APPLICATION_SLEEP_TIME_S."
 #endif
 
-#define ST87_UDP_TASK_MSG_BUF_SIZE      (256U)
-
 #define REQUEST_TIMEOUT_DEFAULT         (10000U) // ms
 
-#define UDP_TASK_PRIORITY               3U
+#define HTTP_TASK_PRIORITY               3U
 #define SENSOR_TASK_PRIORITY            4U
 
 /*-- event management --*/
 #define EVENT_BATCH_SIZE                5U          // size of the event batch to be sent in each UDP packet
 #define SENSORS_SAMPLE_INTERVAL_S       60U         // 1 minute
-#define UDP_SEND_INTERVAL_S             (2U * 60U)  // 5 min - send the batch every UDP_SEND_INTERVAL_S seconds
+#define TELEMETRY_SEND_INTERVAL_S             (2U * 60U)  // 5 min - send the batch every UDP_SEND_INTERVAL_S seconds
 // Ogni 60s il LPTIM genera il CompareMatch → HAL_LPTIM_CompareMatchCallback → queue eEventTimer.
 #define APPLICATION_SLEEP_TIME_S        SENSORS_SAMPLE_INTERVAL_S
 
 /* Tasks stack size */
-#define UDP_TASK_STACK_SIZE             (configMINIMAL_STACK_SIZE * 12)
+#define HTTP_TASK_STACK_SIZE            (configMINIMAL_STACK_SIZE * 12)
 #define SENSOR_TASK_STACK_SIZE          (configMINIMAL_STACK_SIZE * 2)
 #define LED_TASK_STACK_SIZE             (configMINIMAL_STACK_SIZE * 2)
 
@@ -123,38 +169,67 @@ typedef enum UDP_API_State
 /* Private variables ---------------------------------------------------------*/
 
 /* Tasks handlers */
-static TaskHandle_t xUDPTaskHandle = NULL;
+static TaskHandle_t xHTTPTaskHandle = NULL;
 static TaskHandle_t xSensorsDataTaskHandle = NULL;
 
 //MessageBufferHandle_t xSensorDataMBHandle = NULL; // not used if I send data through circular array
 QueueHandle_t xDataQueue = NULL;
 
-// Buffer to store the data read from sensors before sending them via UDP
-static SensorsData batch[EVENT_BATCH_SIZE];
-static uint16_t batch_count = 0;
-
-/* variable to keep track of the age of the batch: if the batch is not empty and either a new sample is added
- * that is PERIODIC_SAMPLE_INTERVAL_S min old or more, or the batch reaches the max age of MAX_BATCH_AGE_S min,
- * the batch will be sent anyway even if it's not full
- */
-static uint32_t last_batch_sample_time_s = 0; // quando ho aggiunto l’ultimo evento al batch
-static uint32_t last_udp_send_time_s = 0; // quando ho fatto l’ultimo invio UDP.
-
-extern bool send_immediately;  // flag to indicate whether to send the UDP packet immediately after receiving an event, without waiting to fill the batch
-
 /* State machine variable */
-volatile UDP_API_State udp_state = UdpApiState_Init;
+volatile APP_State_t app_state = AppState_Init;
+
+/* HTTP Object  */
+ST87EC_Lib_HttpTransferObject_t httpTxObj;
+
+// variabili per la gestione della connessione HTTP
+char *pHost = HTTP_SERVER_IP;
+char *pPath = TELEMETRY_PATH;
+uint32_t PortNb = HTTP_SERVER_PORT;
+uint32_t SecureId = HTTP_SECURE_ID;
+uint32_t Timeout = HTTP_TIMEOUT;
+
+static uint32_t last_http_send_time_s = 0; // timestamp of the last HTTP send operation
+extern bool send_immediately; // flag to indicate if an immediate send is required (set by FSM events)
+
+static char httpRawRequest[HTTP_RAW_REQUEST_BUF_SIZE];
+static char httpResponseBuffer[HTTP_RESPONSE_BUF_SIZE];
+static char jsonPayloadBuffer[JSON_PAYLOAD_BUF_SIZE];
+
+static volatile bool httpResponseReady = false;
+static PendingCommand_t g_pendingCommand;
+static bool g_hasPendingCommand = false;
+
+static volatile bool httpTransferStarted = false;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 
-static void UDPTask(void *pvParameters);
+static void HTTPTask(void *pvParameters);
 
 static void LedBlinking(ST87EC_Lib_Status_t *eclib_state);
 
-static void UdpTransferReadCallback(char const *const pString);
 static void GetTimeCallback(char const *const pString);
 static uint32_t GetCurrentTimeSeconds(void);
+
+static void HttpReceiveCallback(char const *const receivedData);
+static void GetCurrentTimestamp(char *buffer, size_t len);
+static const char* MapOrientationFromEvent(const SensorsData *data);
+
+// funzione per attendere la risposta HTTP con timeout
+static bool WaitHttpResponse(uint32_t timeoutMs);
+
+
+static bool BuildTelemetryJson(char *buffer, size_t len, const TelemetryPayload_t *payload);
+static bool BuildAckJson(char *buffer, size_t len, const CommandAckPayload_t *ack);
+
+static bool BuildHttpPostRequest(char *out, size_t outLen, const char *host, const char *path, const char *jsonBody);
+static bool BuildHttpGetRequest(char *out, size_t outLen, const char *host, const char *path);
+
+//static bool HttpOpenConnection(void);
+//static bool HttpCloseConnection(void);
+static bool HttpSendRawRequest(const char *rawRequest);
+
+static bool ParseForceMeasurementCommand(const char *response, PendingCommand_t *cmd);
 
 /**
  * @brief Initializes the application.
@@ -166,13 +241,17 @@ static uint32_t GetCurrentTimeSeconds(void);
  */
 void AppInit(void)
 {
+  /* Creation of the Queue for 2 Tasks */
+  xDataQueue = xQueueCreate(2, sizeof(eEventType_t)); // (LUNGHEZZA CODA, DIMENSIONE ELEMENTO NELLA CODA)
+  configASSERT(xDataQueue != NULL);
+
   BaseType_t xReturned; // var per controllare l'esito di creazione del task
 
-  xReturned = xTaskCreate(UDPTask, "udp_task",
-  UDP_TASK_STACK_SIZE,
+  xReturned = xTaskCreate(HTTPTask, "http_task",
+  HTTP_TASK_STACK_SIZE,
                           NULL,
-                          UDP_TASK_PRIORITY,
-                          &xUDPTaskHandle);
+                          HTTP_TASK_PRIORITY,
+                          &xHTTPTaskHandle);
 
   configASSERT(xReturned == pdPASS);  // verifica di corretta creazione del task
 
@@ -183,10 +262,6 @@ void AppInit(void)
                           &xSensorsDataTaskHandle);
 
   configASSERT(xReturned == pdPASS);
-
-  /* Creation of the Queue for 2 Tasks */
-  xDataQueue = xQueueCreate(2, sizeof(eEventType_t)); // (LUNGHEZZA CODA, DIMENSIONE ELEMENTO NELLA CODA)
-  configASSERT(xDataQueue != NULL);
 
   /* a) Creation of the Message Buffer */
 //  xSensorDataMBHandle = xMessageBufferCreate(sizeof(SensorsData) * 2);
@@ -202,59 +277,45 @@ void AppInit(void)
 }
 
 /**
- * @brief UDP task for NB-IoT UDP application.
+ * @brief HTTP task for NB-IoT HTTP application.
  *
- * This FreeRTOS task manages the UDP communication over NB-IoT using the ST87EC library.
+ * This FreeRTOS task manages the HTTP communication over NB-IoT using the ST87EC library.
  * It initializes the modem, waits for network registration, and then enters a state machine
- * to handle sensor data transmission via UDP. The task interacts with other tasks via a message buffer,
- * formats sensor data, and sends it to a predefined UDP server. It also manages modem resets,
- * sleep cycles, and handles the UDP transfer completion via callbacks.
+ * to handle sensor data transmission via HTTP. The task interacts with other tasks via a message buffer,
+ * formats sensor data, and sends it to a predefined HTTP server. It also manages modem resets,
+ * sleep cycles, and handles the HTTP transfer completion via callbacks.
  *
  * State machine overview:
- * - UdpApiState_Init: Waits for network registration and initializes RTC.
- * - UdpApiState_RtcInitSequence: Placeholder for RTC initialization sequence.
- * - UdpApiState_GoToSleep: Prepares the system to enter low-power sleep mode.
- * - UdpApiState_Idle: Waits for sensor data and sends it over UDP when available.
- * - UdpApiState_TransferSequence: Waits for UDP transfer to complete.
- * - UdpApiState_TransferComplete: Handles post-transfer actions and returns to sleep.
- *
+ * - AppState_Init: Waits for network registration and initializes RTC.
+ * - AppState_RtcInitSequence: Placeholder for RTC initialization sequence.
+ * - AppState_Idle: Waits for sensor data and sends it over HTTP when available.
+ * - AppState_SendTelemetry: Prepares and sends telemetry data to the server.
+ * - AppState_PollCommands: Polls the server for any pending commands.
+ * - AppState_SendAck: Sends acknowledgment for executed commands.
+ * - AppState_GoToSleep: Prepares the system to enter low-power sleep mode.
  * The task runs indefinitely, periodically checking the modem state and processing sensor data.
  *
  * @param pvParameters Unused parameter.
  */
-static void UDPTask(void *pvParameters)
+static void HTTPTask(void *pvParameters)
 {
   UNUSED(pvParameters);
 
   ST87EC_Lib_Result_t result;
   ST87EC_Lib_Status_t eclib_state;
-  ST87EC_Lib_UdpTcpObject_t UdpObject;
-  char buffer[ST87_UDP_TASK_MSG_BUF_SIZE];
+
   SensorsData data;
 
-  printf("\r\n\r\n--------------- NB-IoT UDP application init ---------------\r\n");
+  printf("\r\n\r\n--------------- NB-IoT HTTP application init ---------------\r\n");
   printf("Waiting for network registration...\r\n");
 
   /* EC lib initialization */
   result = ST87EC_Lib_Init(NULL);
   configASSERT(result == RESULT_OK);
 
-#if defined(UDP_SERVER_ADDRESS)
-  UdpObject.AddressType = URL;
-  UdpObject.pHost = UDP_SERVER_ADDRESS;
-#elif defined (UDP_SERVER_IP)
-  UdpObject.AddressType = IPV4;
-  UdpObject.pHost = UDP_SERVER_IP;
-#endif
-  UdpObject.PortNb = UDP_SERVER_PORT;
-  UdpObject.SecureId = SECURE_ID;
-  UdpObject.pDataTx = buffer;
-  UdpObject.DataTxLength = 0;
-  UdpObject.TimeoutMs = REQUEST_TIMEOUT_DEFAULT;
-  UdpObject.LastPacket = LAST_PKT_TRUE;
-  UdpObject.pTransferReadCallbackFunc = UdpTransferReadCallback;
-
-  memset(buffer, 0, ST87_UDP_TASK_MSG_BUF_SIZE);  // buffer is the transmitted message, initialized to 0
+  httpTxObj.pHttpRxCallbackFunc = HttpReceiveCallback;
+  httpTxObj.KeepAlive = HTTP_KEEP_ALIVE;
+  httpTxObj.Timeout = HTTP_TIMEOUT;
 
   for(;;)
   {
@@ -265,8 +326,13 @@ static void UDPTask(void *pvParameters)
     {
       printf("\r\nThere was an error in sequence execution...\r\n");
       printf("\r\nModem reset underway...\r\n");
+
+      httpResponseReady = false;
+      httpTransferStarted = false;
+
       ST87EC_Lib_Reset();
-      udp_state = UdpApiState_Init;
+      app_state = AppState_Init;
+
       printf("\r\nModem reset complete...\r\n");
     }
 
@@ -275,23 +341,23 @@ static void UDPTask(void *pvParameters)
     /* Modem is attached to the network and no sequence is currently active */
     if((eclib_state.RegistrationStatus == REGISTERED) && (eclib_state.OnGoingSequence == SEQUENCE_NONE))
     {
-      switch(udp_state)
+      switch(app_state)
       {
-        case UdpApiState_Init:
+        case AppState_Init:
           {
             printf("Registration complete. Attached to NB-IoT network!\r\n\r\n");
 
-            configASSERT(ST87EC_Lib_GetTime(GetTimeCallback, REQUEST_TIMEOUT_DEFAULT) == RESULT_OK);
-            udp_state = UdpApiState_RtcInitSequence;
+            configASSERT(ST87EC_Lib_GetTime(GetTimeCallback, HTTP_TIMEOUT) == RESULT_OK);
+            app_state = AppState_RtcInitSequence;
             break;
           }
-        case UdpApiState_RtcInitSequence:
+        case AppState_RtcInitSequence:
           {
             /* Nothing specific to do during RtcInit sequence for now */
             /* State will be changed in GetTimeCallback */
             break;
           }
-        case UdpApiState_GoToSleep:
+        case AppState_GoToSleep:
           {
             printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
             printf("Waiting for ST87M01 to go to sleep as well...\r\n");
@@ -303,320 +369,212 @@ static void UDPTask(void *pvParameters)
 
             HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
 
-            udp_state = UdpApiState_Idle;
+            app_state = AppState_Idle;
             break;
           }
-        case UdpApiState_Idle:
-//          {
-//            if((eclib_state.SleepWakeupstatus == STATUS_SLEEP) || !EventBuffer_IsEmpty())
-//            {
-//              SensorsData ev;
-//              // riempio il batch fino a quando c'è spazio e ci sono eventi in coda
-//              while((batch_count < EVENT_BATCH_SIZE) && EventBuffer_Pop(&ev))
-//              {
-//                batch[batch_count++] = ev;
-//
-//                if(send_immediately)
-//                {
-//                  // se è arrivato un evento che richiede invio immediato, esco subito dal ciclo di riempimento del batch per inviare subito il pacchetto UDP, anche se il batch non è ancora pieno
-//                  break;
-//                }
-//
-//                // Test log
-////                printf("BatchFill: idx=%u, event_type=%d, mlc=0x%02" PRIX32 ", fsm_imp=%d, fsm_ff=%d\r\n", (unsigned) (batch_count - 1), ev.event_type,
-////                       ev.mlc_output, ev.fsm_impact, ev.fsm_free_fall);
-//              }
-//
-//              if(send_immediately || batch_count >= EVENT_BATCH_SIZE) // batch riempito
-//              {
-//                // costruzione del payload (batch)
-//                size_t used = 0;  // numero di byte usati finora nel buffer del messaggio
-//                size_t remaining = ST87_UDP_TASK_MSG_BUF_SIZE;
-//
-//                // aggiungo header al pacchetto da trasmettere, per indicare l'inizio del batch
-//                used += snprintf(UdpObject.pDataTx + used, remaining - used, "EVENT_BATCH_START\n");
-//
-//                for(uint16_t i = 0; i < batch_count; i++)
-//                {
-//                  const SensorsData *pev = &batch[i];
-//                  const char *kind_str = "GENERIC";
-//
-//                  /*-- MLC event --*/
-//                  if(pev->event_type == eEventMLC1)
-//                  {
-//                    const char *state_str = "Unknown";
-//                    switch(pev->mlc_output)
-//                    {
-//                      case 0x00:
-//                        state_str = "Stationary_Upright";
-//                        break;
-//                      case 0x04:
-//                        state_str = "Stationary_NotUpright";
-//                        break;
-//                      case 0x08:
-//                        state_str = "InMotion";
-//                        break;
-//                      case 0x0C:
-//                        state_str = "Shaken";
-//                        break;
-//                    }
-//                    kind_str = "MLC";
-//                    used += snprintf(UdpObject.pDataTx + used, remaining - used, "TYPE=%s;MLC=0x%02" PRIX32 " (%s)\n", kind_str, pev->mlc_output, state_str);
-//                  }
-//                  /*-- FSM event --*/
-//                  else if(pev->event_type == eEventFSM)
-//                  {
-//                    const char *fsm_state_str = "Unknown";
-//                    if(pev->fsm_impact)
-//                      fsm_state_str = "Impact";
-//                    else if(pev->fsm_free_fall)
-//                      fsm_state_str = "FreeFall";
-//
-//                    kind_str = "FSM";
-//                    used += snprintf(UdpObject.pDataTx + used, remaining - used, "TYPE=%s;FSM_STATE=%s\n", kind_str, fsm_state_str);
-//                  }
-//                  else
-//                  {
-//                    kind_str = "PERIODIC";
-//                    used += snprintf(UdpObject.pDataTx + used, remaining - used, "TYPE=%s;Temp=%0.2f;Hum=%0.2f;Press=%0.2f\n", kind_str,
-//                                     pev->sensor_hum_and_temp.temp, pev->sensor_hum_and_temp.hum, pev->sensor_barometer.pres);
-//                  }
-//                }
-//                // fine del batch
-//                used += snprintf(UdpObject.pDataTx + used, remaining - used, "EVENT_BATCH_END\n");
-//
-//                printf("\r\nSending UDP packet with %u events...\r\n", (unsigned) batch_count);
-//                UdpObject.DataTxLength = (uint32_t) used;
-//
-//                // TEST: mostro il contenuto del payload prima di inviarlo
-////                printf("UDP payload length = %lu\r\n", (unsigned long) UdpObject.DataTxLength);
-////                printf("UDP payload:\r\n%.*s\r\n", (int) UdpObject.DataTxLength, UdpObject.pDataTx);
-//
-//                ST87EC_Lib_NBIOT_UdpTransferData(&UdpObject);
-//
-//                batch_count = 0;  // svuoto il batch
-//                send_immediately = false;  // resetto flag di invio immediato dopo aver inviato il batch
-//                udp_state = UdpApiState_TransferSequence;
-//              }
-//            }
-//            break;
-//          }
-
-
-          // ------ NEW CODE WITH TIMING --------------------------------------------------------------------------------
+        case AppState_Idle:
           {
             uint32_t now = GetCurrentTimeSeconds();
-            bool timeout_send = false;
+            uint32_t delta_send = now - last_http_send_time_s;
 
-            // 1) Verifico se è passato abbastanza tempo dall'ultimo invio UDP da giustificare l'invio del batch anche se non è pieno (timeout)
-            uint32_t delta_send = now - last_udp_send_time_s;
-            if(delta_send >= UDP_SEND_INTERVAL_S)
+            // TODO: valutare se usare anche qui la logica di "send_immediately" come per UDP, per inviare subito i dati telemetrici in caso di evento MLC/FSM
+            if(!EventBuffer_IsEmpty() || send_immediately || (delta_send >= TELEMETRY_SEND_INTERVAL_S))
             {
-              printf("\r\nUDP send interval timeout! It's been %lu seconds since last UDP send. Will try to send batch even if it's not full...\r\n",
-                     (unsigned long) delta_send);
-              timeout_send = true;
-            }
-
-            if((eclib_state.SleepWakeupstatus == STATUS_SLEEP) || !EventBuffer_IsEmpty() || timeout_send || send_immediately)
-            {
-              SensorsData ev;
-
-              // 2) Se ho timeout_send MA il batch è vuoto -> provo a fare un pop
-              if(timeout_send && (batch_count == 0))
-              {
-                if(EventBuffer_Pop(&ev))
-                {
-                  batch[batch_count++] = ev;
-                  last_batch_sample_time_s = now;
-                }
-                else
-                {
-                  printf("\r\nBATCH TIMEOUT but NO events in buffer to send! Resetting timeout flag and waiting for next event or next timeout...\r\n");
-                  timeout_send = false; // resetto flag di timeout se non ho eventi da inviare, aspetto il prossimo evento o il prossimo timeout
-                }
-              }
-
-              // 3) Riempio il batch finché c'è spazio e ci sono eventi
-              while((batch_count < EVENT_BATCH_SIZE) && EventBuffer_Pop(&ev))
-              {
-                batch[batch_count++] = ev;
-                last_batch_sample_time_s = now; // ultimo evento aggiunto al batch
-
-                if(send_immediately)
-                {
-                  // (per ora non lo usiamo ancora, lo sfrutteremo per FSM)
-                  break;
-                }
-              }
-
-              // 4) Decide se inviare: batch pieno OPPURE timeout scaduto
-              if((batch_count >= EVENT_BATCH_SIZE) || ((timeout_send || send_immediately) && (batch_count > 0)))
-              {
-                // costruzione del payload
-                size_t used = 0;
-                size_t remaining = ST87_UDP_TASK_MSG_BUF_SIZE;
-
-                used += snprintf(UdpObject.pDataTx + used, remaining - used, "EVENT_BATCH_START\n");
-
-                for(uint16_t i = 0; i < batch_count; i++)
-                {
-                  const SensorsData *pev = &batch[i];
-                  const char *kind_str = "GENERIC";
-
-                  if(pev->event_type == eEventMLC1)
-                  {
-                    const char *state_str = "Unknown";
-                    switch(pev->mlc_output)
-                    {
-                      case 0x00:
-                        state_str = "Stationary_Upright";
-                        break;
-                      case 0x04:
-                        state_str = "Stationary_NotUpright";
-                        break;
-                      case 0x08:
-                        state_str = "InMotion";
-                        break;
-                      case 0x0C:
-                        state_str = "Shaken";
-                        break;
-                    }
-                    kind_str = "MLC";
-                    used += snprintf(UdpObject.pDataTx + used, remaining - used, "TYPE=%s;MLC=0x%02" PRIX32 " (%s)\n", kind_str, pev->mlc_output, state_str);
-                  }
-                  else if(pev->event_type == eEventFSM)
-                  {
-                    const char *fsm_state_str = "Unknown";
-                    if(pev->fsm_impact)
-                      fsm_state_str = "Impact";
-                    else if(pev->fsm_free_fall)
-                      fsm_state_str = "FreeFall";
-
-                    kind_str = "FSM";
-                    used += snprintf(UdpObject.pDataTx + used, remaining - used, "TYPE=%s;FSM_STATE=%s\n", kind_str, fsm_state_str);
-                  }
-                  else
-                  {
-                    // tutti gli altri (es. eEventTimer) li tratti come "campione sensori"
-                    kind_str = "SAMPLE";
-                    used += snprintf(UdpObject.pDataTx + used, remaining - used, "TYPE=%s;Temp=%0.2f;Hum=%0.2f;Press=%0.2f\n", kind_str,
-                                     pev->sensor_hum_and_temp.temp, pev->sensor_hum_and_temp.hum, pev->sensor_barometer.pres);
-                  }
-                }
-
-                used += snprintf(UdpObject.pDataTx + used, remaining - used, "EVENT_BATCH_END\n");
-
-                printf("\r\nSending UDP packet with %u events...\r\n", (unsigned) batch_count);
-                UdpObject.DataTxLength = (uint32_t) used;
-
-                ST87EC_Lib_NBIOT_UdpTransferData(&UdpObject);
-
-                batch_count = 0;                   // svuota batch
-                send_immediately = false;
-                last_udp_send_time_s = now;        // aggiorno ultimo invio
-                udp_state = UdpApiState_TransferSequence;
-              }
+              app_state = AppState_SendTelemetry;
             }
             break;
           }
+        case AppState_SendTelemetry:
+          {
+            TelemetryPayload_t payload;
 
-          // ------ ORIGINAL CODE --------------------------------------------------------------------------------
-//        case UdpApiState_Idle:
+            /* funzione per azzerare la struct payload e la struct data prima di riempirle con i dati correnti */
+            memset(&data, 0, sizeof(data));
+            memset(&payload, 0, sizeof(payload));
+
+            // inizializzazioni generate
+            httpResponseReady = false;
+            httpTransferStarted = false;
+            memset(httpResponseBuffer, 0, sizeof(httpResponseBuffer));
+            memset(httpRawRequest, 0, sizeof(httpRawRequest));
+            memset(jsonPayloadBuffer, 0, sizeof(jsonPayloadBuffer));
+
+            // se non ci sono eventi nel buffer, NON invio niente per non sporcare il DB
+            if(!EventBuffer_Pop(&data))
+            {
+              printf("\r\nNo telemetry data available in event buffer\r\n");
+              app_state = AppState_PollCommands;
+              break;
+            }
+
+            /* popolo payload */
+            strcpy(payload.deviceId, DEVICE_ID);
+            GetCurrentTimestamp(payload.timestamp, sizeof(payload.timestamp));
+            payload.temperature = data.sensor_hum_and_temp.temp;
+            payload.humidity = data.sensor_hum_and_temp.hum;
+            payload.pressure = data.sensor_barometer.pres;
+            payload.battery = 100; /* Placeholder */
+            strncpy(payload.orientation, MapOrientationFromEvent(&data), sizeof(payload.orientation) - 1);
+
+            // se il payload JSON non viene costruito correttamente, vado a sleep senza inviare nulla
+            if(!BuildTelemetryJson(jsonPayloadBuffer, sizeof(jsonPayloadBuffer), &payload))
+            {
+              printf("\r\nFailed to build telemetry JSON\r\n");
+              app_state = AppState_GoToSleep;
+              break;
+            }
+
+            // se la richiesta HTTP non viene costruita correttamente, vado a sleep senza inviare nulla
+            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest), HTTP_SERVER_IP, pPath, jsonPayloadBuffer))
+            {
+              printf("\r\nFailed to build HTTP POST request for telemetry\r\n");
+              app_state = AppState_GoToSleep;
+              break;
+            }
+
+            printf("\r\nSending telemetry HTTP POST...\r\n");
+            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
+
+            app_state = AppState_HTTP_Open;
+            break;
+          }
+        case AppState_HTTP_Open:
+          {
+            /* Open HTTP connection */
+            printf(APP_LOG_PREFIX"Opening HTTP connection...");
+            result = ST87EC_Lib_NBIOT_HttpOpen(pHost, PortNb, SecureId, Timeout);
+
+            if(result == RESULT_OK)
+            {
+              app_state = AppState_HTTP_SendData;
+            }
+            else
+            {
+              printf(APP_LOG_PREFIX"Failed to open HTTP connection: %d\r\n", result);
+              app_state = AppState_GoToSleep;
+            }
+            break;
+          }
+        case AppState_HTTP_SendData:
+          {
+            /* Connection not open */
+            if(eclib_state.HttpConnectionStatus == HTTP_NOT_CONNECTED)
+            {
+              printf(APP_LOG_PREFIX"HTTP connection not open.\r\n");
+              app_state = AppState_HTTP_Open;
+              break;
+            }
+
+            memset(&httpTxObj, 0, sizeof(httpTxObj));
+            httpTxObj.pHttpRxCallbackFunc = HttpReceiveCallback;
+            httpTxObj.KeepAlive = HTTP_KEEP_ALIVE;
+            httpTxObj.Timeout = HTTP_TIMEOUT;
+            httpTxObj.pHttpRawInStr = httpRawRequest;
+
+            printf(APP_LOG_PREFIX"Starting HTTP transfer...\r\n");
+            result = ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj);
+
+            if(result == RESULT_OK)
+            {
+              printf(APP_LOG_PREFIX"HTTP transfer started successfully.\r\n");
+              httpTransferStarted = true;
+              app_state = AppState_HTTP_WaitResponse;
+            }
+            else
+            {
+              printf(APP_LOG_PREFIX"Failed to start HTTP transfer: %d\r\n", result);
+              app_state = AppState_HTTP_Close;
+
+            }
+            break;
+          }
+        case AppState_HTTP_WaitResponse:
+          {
+            if(httpResponseReady)
+            {
+              printf(APP_LOG_PREFIX"HTTP response received.\r\n");
+              last_http_send_time_s = GetCurrentTimeSeconds();
+              send_immediately = false;
+              app_state = AppState_HTTP_Close;
+            }
+            break;
+          }
+        case AppState_HTTP_Close:
+          {
+            /* Close HTTP connection */
+            printf(APP_LOG_PREFIX"Closing HTTP connection...\r\n");
+            result = ST87EC_Lib_NBIOT_HttpClose(HTTP_TIMEOUT);
+
+            if(result != RESULT_OK)
+            {
+              printf(APP_LOG_PREFIX"Failed to close HTTP connection: %d\r\n", result);
+
+            }
+
+            httpTransferStarted = false;
+            app_state = AppState_GoToSleep;
+            break;
+          }
+//        case AppState_PollCommands:
+//        {
+//          char commandPath[128];
+//
+//          snprintf(commandPath, sizeof(commandPath),
+//                   "/api/v1/devices/%s/commands/pending",
+//                   DEVICE_ID);
+//
+//          if(!BuildHttpGetRequest(httpRawRequest, sizeof(httpRawRequest), HTTP_SERVER_IP, commandPath))
 //          {
-//            if((eclib_state.SleepWakeupstatus == STATUS_SLEEP) || !EventBuffer_IsEmpty())
-//            {
-//              /* Wait for new messages from sensor task. Timeout in order to execute the scheduler */
-//              SensorsData data;
-//
-//              /* Pop data from event buffer */
-//              bool pop_result = EventBuffer_Pop(&data);
-//
-//              if(pop_result) // buffer not empty
-//              {
-//                uint32_t msg_size;
-//
-//                if(data.event_type == eEventMLC1)
-//                {
-//                  // Pacchetto MLC
-//                  const char *state_str = "Unknown";
-//                  switch(data.mlc_output)
-//                  {
-//                    case 0x00:
-//                      state_str = "Stationary_Upright";
-//                      break;
-//                    case 0x04:
-//                      state_str = "Stationary_NotUpright";
-//                      break;
-//                    case 0x08:
-//                      state_str = "InMotion";
-//                      break;
-//                    case 0x0C:
-//                      state_str = "Shaken";
-//                      break;
-//                  }
-//                  msg_size = (uint32_t) snprintf(UdpObject.pDataTx, ST87_UDP_TASK_MSG_BUF_SIZE, "MLC_STATE=0x%02X (%s)", (unsigned int) data.mlc_output,
-//                                                 state_str);
-//                }
-//                else if(data.event_type == eEventFSM)
-//                {
-//                  const char *fsm_state_str = "Unknown";
-//                  if(data.fsm_impact)
-//                  {
-//                    fsm_state_str = "Impact";
-//                  }
-//                  else if(data.fsm_free_fall)
-//                  {
-//                    fsm_state_str = "FreeFall";
-//                  }
-//                  msg_size = (uint32_t) snprintf(UdpObject.pDataTx, ST87_UDP_TASK_MSG_BUF_SIZE, "FSM_STATE (%s)", fsm_state_str);
-////                  msg_size = (uint32_t) snprintf(UdpObject.pDataTx, ST87_UDP_TASK_MSG_BUF_SIZE, "FSM_IMPACT=%s, FSM_FREE_FALL=%s",
-////                                                 data.fsm_impact ? "true" : "false", data.fsm_free_fall ? "true" : "false");
-//                }
-//                else
-//                {
-//                  msg_size = (uint32_t) snprintf(UdpObject.pDataTx, ST87_UDP_TASK_MSG_BUF_SIZE, "Temp=%0.2f[C] - Hum=%0.2f[pRH] "
-//                                                 "- Press=%0.2f[hPa] - Acc x=%0.3f[mg], y=%0.3f[mg], z=%0.3f[mg]",
-//                                                 data.sensor_hum_and_temp.temp, data.sensor_hum_and_temp.hum, data.sensor_barometer.pres,
-//                                                 data.sensor_accelerometer.x, data.sensor_accelerometer.y, data.sensor_accelerometer.z);
-//                }
-//
-//                printf("\r\nSending UDP packet...\r\n");
-//                // TODO: tolgo commento per mostrare il contenuto del payload
-////                printf("\r\nPayload content: \r\n%s\r\n", buffer);
-//
-//                UdpObject.DataTxLength = msg_size;
-//                ST87EC_Lib_NBIOT_UdpTransferData(&UdpObject);
-//
-//                PrintEventBufferContents();
-//
-//                udp_state = UdpApiState_TransferSequence;
-//              }
-//              else
-//              {
-//                /* Timeout: no data received from sensor task.
-//                 * Retain the status but unlock the task in order to call the scheduler */
-//              }
-//            }
+//            printf("\r\nFailed to build HTTP GET request for command polling\r\n");
+//            app_state = AppState_GoToSleep;
 //            break;
 //          }
-        case UdpApiState_TransferSequence:
-          {
-            // TEST ////////////////////////////////////////////////////////
-//            printf("[UDPTask] State = TransferSequence\r\n");
-            /////////////////////////////////////////////////////////////
-            /* Nothing specific to, waiting for UDP transfer Callback */
-            break;
-          }
-        case UdpApiState_TransferComplete:
-          {
-            // TEST ////////////////////////////////////////////////////////
-//            printf("[UDPTask] State = TransferComplete\r\n");
-            /////////////////////////////////////////////////////////////
+//
+//          printf("\r\nPolling commands...\r\n");
+//          printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
+//
+//          g_hasPendingCommand = false;
+//
+//          if(HttpOpenConnection())
+//          {
+//            if(HttpSendRawRequest(httpRawRequest))
+//            {
+//              if(ParseForceMeasurementCommand(httpResponseBuffer, &g_pendingCommand))
+//              {
+//                g_hasPendingCommand = true;
+//                printf("\r\nPending command detected: %s (id=%d)\r\n",
+//                       g_pendingCommand.type, g_pendingCommand.id);
+//              }
+//            }
+//            HttpCloseConnection();
+//          }
+//          else
+//          {
+//            printf("\r\nHTTP open connection failed for command polling\r\n");
+//          }
+//
+//          if(g_hasPendingCommand)
+//          {
+//            app_state = AppState_SendAck;
+//          }
+//          else
+//          {
+//            app_state = AppState_GoToSleep;
+//          }
+//
+//          break;
+//        }
 
-            printf("\r\nTransfer complete...\r\n");
-            udp_state = UdpApiState_GoToSleep;
-            break;
-          }
+//        case UdpApiState_TransferComplete:
+//          {
+//            // TEST ////////////////////////////////////////////////////////
+////            printf("[UDPTask] State = TransferComplete\r\n");
+//            /////////////////////////////////////////////////////////////
+//
+//            printf("\r\nTransfer complete...\r\n");
+//            udp_state = UdpApiState_GoToSleep;
+//            break;
+//          }
         default:
           break;
       }
@@ -625,25 +583,257 @@ static void UDPTask(void *pvParameters)
   }
 }
 
-/**
- * @brief Callback function for UDP receive completion.
- *
- * This function is called when a UDP transfer is completed. It updates the
- * application state and prints the received data if available.
- *
- * @param pString Pointer to the received string data. If NULL, no data was received.
- */
-static void UdpTransferReadCallback(char const *const pString)
-{
-  udp_state = UdpApiState_TransferComplete;
-
-  printf("\r\n#IPRECV: ");
-  if(pString != NULL)
-  {
-    printf("%s", (const char*) pString);
-  }
-  printf("\r\n");
-}
+/* ----------------------------------------------- HTTP Task FIRST GENERATION ----------------------------------------------- */
+//static void HTTPTask(void *pvParameters)
+//{
+//  UNUSED(pvParameters);
+//
+//  ST87EC_Lib_Result_t result;
+//  ST87EC_Lib_Status_t eclib_state;
+//  SensorsData data;
+//
+//  printf("\r\n\r\n--------------- NB-IoT HTTP application init ---------------\r\n");
+//  printf("Waiting for network registration...\r\n");
+//
+//  result = ST87EC_Lib_Init(NULL);
+//  configASSERT(result == RESULT_OK);
+//
+//  for(;;)
+//  {
+//    result = ST87EC_Lib_Scheduler();
+//
+//    if(result == RESULT_KO)
+//    {
+//      printf("\r\nThere was an error in sequence execution...\r\n");
+//      printf("\r\nModem reset underway...\r\n");
+//      ST87EC_Lib_Reset();
+//      app_state = AppState_Init;
+//      printf("\r\nModem reset complete...\r\n");
+//    }
+//
+//    ST87EC_Lib_GetState(&eclib_state);
+//
+//    if((eclib_state.RegistrationStatus == REGISTERED) && (eclib_state.OnGoingSequence == SEQUENCE_NONE))
+//    {
+//      switch(app_state)
+//      {
+//        case AppState_Init:
+//          {
+//            printf("Registration complete. Attached to NB-IoT network!\r\n\r\n");
+//
+//            configASSERT(ST87EC_Lib_GetTime(GetTimeCallback, HTTP_TIMEOUT) == RESULT_OK);
+//            app_state = AppState_RtcInitSequence;
+//            break;
+//          }
+//
+//        case AppState_RtcInitSequence:
+//          {
+//            /* waiting for GetTimeCallback */
+//            break;
+//          }
+//
+//        case AppState_GoToSleep:
+//          {
+//            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
+//            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
+//
+//            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
+//            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
+//
+//            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+//
+//            app_state = AppState_Idle;
+//            break;
+//          }
+//
+//        case AppState_Idle:
+//          {
+//            uint32_t now = GetCurrentTimeSeconds();
+//            uint32_t delta_send = now - last_http_send_time_s;
+//
+//            if(!EventBuffer_IsEmpty() || send_immediately || (delta_send >= UDP_SEND_INTERVAL_S))
+//            {
+//              app_state = AppState_SendTelemetry;
+//            }
+//            break;
+//          }
+//
+//        case AppState_SendTelemetry:
+//          {
+//            TelemetryPayload_t payload;
+//
+//            memset(&payload, 0, sizeof(payload));
+//            memset(&data, 0, sizeof(data));
+//
+//            /* Se non ci sono eventi nel buffer, faccio comunque una telemetria periodica "vuota" dal punto di vista eventi */
+//            if(!EventBuffer_Pop(&data))
+//            {
+//              data.event_type = eEventTimer;
+//              data.mlc_output = 0;
+//              data.fsm_impact = false;
+//              data.fsm_free_fall = false;
+//              data.sensor_hum_and_temp.temp = 0.0f;
+//              data.sensor_hum_and_temp.hum = 0.0f;
+//              data.sensor_barometer.pres = 0.0f;
+//            }
+//
+//            strcpy(payload.deviceId, DEVICE_ID);
+//            GetCurrentTimestamp(payload.timestamp, sizeof(payload.timestamp));
+//            payload.temperature = data.sensor_hum_and_temp.temp;
+//            payload.humidity = data.sensor_hum_and_temp.hum;
+//            payload.pressure = data.sensor_barometer.pres;
+//            payload.battery = 100; /* Placeholder */
+//            strncpy(payload.orientation, MapOrientationFromEvent(&data), sizeof(payload.orientation) - 1);
+//
+//            if(!BuildTelemetryJson(jsonPayloadBuffer, sizeof(jsonPayloadBuffer), &payload))
+//            {
+//              printf("\r\nFailed to build telemetry JSON\r\n");
+//              app_state = AppState_GoToSleep;
+//              break;
+//            }
+//
+//            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest),
+//            HTTP_SERVER_IP,
+//                                     "/api/v1/telemetry", jsonPayloadBuffer))
+//            {
+//              printf("\r\nFailed to build HTTP POST request for telemetry\r\n");
+//              app_state = AppState_GoToSleep;
+//              break;
+//            }
+//
+//            printf("\r\nSending telemetry HTTP POST...\r\n");
+//            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
+//
+//            if(HttpOpenConnection())
+//            {
+//              if(HttpSendRawRequest(httpRawRequest))
+//              {
+//                last_http_send_time_s = GetCurrentTimeSeconds();
+//              }
+//              HttpCloseConnection();
+//            }
+//            else
+//            {
+//              printf("\r\nHTTP open connection failed\r\n");
+//            }
+//
+//            send_immediately = false;
+//            app_state = AppState_PollCommands;
+//            break;
+//          }
+//
+//        case AppState_PollCommands:
+//          {
+//            char commandPath[128];
+//
+//            snprintf(commandPath, sizeof(commandPath), "/api/v1/devices/%s/commands/pending",
+//            DEVICE_ID);
+//
+//            if(!BuildHttpGetRequest(httpRawRequest, sizeof(httpRawRequest), HTTP_SERVER_IP, commandPath))
+//            {
+//              printf("\r\nFailed to build HTTP GET request for command polling\r\n");
+//              app_state = AppState_GoToSleep;
+//              break;
+//            }
+//
+//            printf("\r\nPolling commands...\r\n");
+//            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
+//
+//            g_hasPendingCommand = false;
+//
+//            if(HttpOpenConnection())
+//            {
+//              if(HttpSendRawRequest(httpRawRequest))
+//              {
+//                if(ParseForceMeasurementCommand(httpResponseBuffer, &g_pendingCommand))
+//                {
+//                  g_hasPendingCommand = true;
+//                  printf("\r\nPending command detected: %s (id=%d)\r\n", g_pendingCommand.type, g_pendingCommand.id);
+//                }
+//              }
+//              HttpCloseConnection();
+//            }
+//            else
+//            {
+//              printf("\r\nHTTP open connection failed for command polling\r\n");
+//            }
+//
+//            if(g_hasPendingCommand)
+//            {
+//              app_state = AppState_SendAck;
+//            }
+//            else
+//            {
+//              app_state = AppState_GoToSleep;
+//            }
+//
+//            break;
+//          }
+//
+//        case AppState_SendAck:
+//          {
+//            CommandAckPayload_t ack;
+//            char ackPath[160];
+//
+//            memset(&ack, 0, sizeof(ack));
+//
+//            strcpy(ack.status, "EXECUTED");
+//            GetCurrentTimestamp(ack.ackAt, sizeof(ack.ackAt));
+//            strcpy(ack.resultMessage, "Measurement executed successfully");
+//
+//            if(strcmp(g_pendingCommand.type, "FORCE_MEASUREMENT") == 0)
+//            {
+//              printf("\r\nExecuting FORCE_MEASUREMENT command...\r\n");
+//              send_immediately = true;
+//            }
+//
+//            if(!BuildAckJson(jsonPayloadBuffer, sizeof(jsonPayloadBuffer), &ack))
+//            {
+//              printf("\r\nFailed to build ACK JSON\r\n");
+//              app_state = AppState_GoToSleep;
+//              break;
+//            }
+//
+//            snprintf(ackPath, sizeof(ackPath), "/api/v1/devices/%s/commands/%d/ack",
+//            DEVICE_ID,
+//                     g_pendingCommand.id);
+//
+//            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest),
+//            HTTP_SERVER_IP,
+//                                     ackPath, jsonPayloadBuffer))
+//            {
+//              printf("\r\nFailed to build HTTP POST request for ACK\r\n");
+//              app_state = AppState_GoToSleep;
+//              break;
+//            }
+//
+//            printf("\r\nSending command ACK...\r\n");
+//            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
+//
+//            if(HttpOpenConnection())
+//            {
+//              HttpSendRawRequest(httpRawRequest);
+//              HttpCloseConnection();
+//            }
+//            else
+//            {
+//              printf("\r\nHTTP open connection failed for ACK\r\n");
+//            }
+//
+//            g_hasPendingCommand = false;
+//            app_state = AppState_GoToSleep;
+//            break;
+//          }
+//
+//        default:
+//          app_state = AppState_GoToSleep;
+//          break;
+//      }
+//    }
+//
+//    LedBlinking(&eclib_state);
+//  }
+//}
 
 /**
  * @brief Prepares the system for entering sleep mode.
@@ -840,15 +1030,14 @@ static void GetTimeCallback(char const *const pString)
   configASSERT((HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN) == HAL_OK));
 
   uint32_t now = GetCurrentTimeSeconds();
-  last_batch_sample_time_s = now;
-//  last_udp_send_time_s = now;
+  last_http_send_time_s = now;
 
   /* Wakeup the sensors data task */
   eEventType_t event = eEventFirst;
   configASSERT(xDataQueue != NULL);
   xQueueSend(xDataQueue, &event, portMAX_DELAY);
 
-  udp_state = UdpApiState_Idle;
+  app_state = AppState_Idle;
 }
 
 /**
@@ -895,3 +1084,284 @@ static void LedBlinking(ST87EC_Lib_Status_t *eclib_state)
     }
   }
 }
+
+/******************************************************************************
+ * HTTP SERVER CONFIGURATION - IoT MONITORING SYS
+ ******************************************************************************/
+/**
+ * Callback function executed when an HTTP packet is received.
+ *
+ * This function is called by the HTTP library when an HTTP response is received.
+ * It copies the received data into a buffer, sets a flag indicating that the response is ready,
+ * and prints the received payload to the console. If no data is received, it clears the buffer and sets the response ready flag.
+ *
+ * @param receivedData Pointer to the received HTTP data. If NULL, no data was received.
+ * */
+static void HttpReceiveCallback(char const *const receivedData)
+{
+  if(receivedData != NULL)
+  {
+    // Copy the received data into the httpResponseBuffer, ensuring it is null-terminated
+    strncpy(httpResponseBuffer, receivedData, sizeof(httpResponseBuffer) - 1);
+    httpResponseBuffer[sizeof(httpResponseBuffer) - 1] = '\0';
+    httpResponseReady = true;
+
+    /* Process the received data */
+    printf(APP_LOG_PREFIX"[HTTP RX] - Received HTTP data.");
+    printf(APP_LOG_PREFIX"Payload: %s\n", httpResponseBuffer);
+  }
+  else
+  {
+    httpResponseBuffer[0] = '\0';
+    httpResponseReady = true;
+    printf(APP_LOG_PREFIX"[HTTP RX] - No data received.\r\n");
+  }
+
+//  app_state = AppState_HTTP_Close;
+}
+
+/**
+ * helper function to wait for an HTTP response within a specified timeout.
+ *
+ * @param timeoutMs The maximum time to wait for the HTTP response in milliseconds.
+ * @return true if the HTTP response is ready within the timeout, false otherwise.
+ * */
+static bool WaitHttpResponse(uint32_t timeoutMs)
+{
+  uint32_t start = HAL_GetTick();
+
+  while((HAL_GetTick() - start) < timeoutMs)
+  {
+    if(httpResponseReady)
+    {
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(HTTP_POLL_DELAY_MS));
+  }
+
+  return false;
+}
+
+/**
+ * function to get the current timestamp in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+ *
+ * @param buffer Pointer to the buffer where the timestamp will be written.
+ * @param len Length of the buffer.
+ * */
+static void GetCurrentTimestamp(char *buffer, size_t len)
+{
+  RTC_TimeTypeDef time;
+  RTC_DateTypeDef date;
+
+  HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN);
+  HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN);
+
+  snprintf(buffer, len, "20%02u-%02u-%02uT%02u:%02u:%02uZ", date.Year, date.Month, date.Date, time.Hours, time.Minutes, time.Seconds);
+}
+
+/**
+ * function to map the orientation from the event data to a string representation.
+ *
+ * @param data Pointer to the SensorsData structure containing the event data.
+ * @return A string representing the orientation based on the event data.
+ * */
+static const char* MapOrientationFromEvent(const SensorsData *data)
+{
+  if(data->fsm_impact)
+  {
+    return "IMPACT";
+  }
+  if(data->fsm_free_fall)
+  {
+    return "FREE_FALL";
+  }
+
+  switch(data->mlc_output)
+  {
+    case 0x00:
+      return "STATIONARY_UPRIGHT";
+    case 0x04:
+      return "STATIONARY_NOT_UPRIGHT";
+    case 0x08:
+      return "IN_MOTION";
+    case 0x0C:
+      return "SHAKEN";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+/**
+ * Function to build a JSON string for telemetry data.
+ *
+ * @param buffer Pointer to the buffer where the JSON string will be written.
+ * @param len Length of the buffer.
+ * @param payload Pointer to the TelemetryPayload_t structure containing the telemetry data.
+ * @return true if the JSON string was successfully built and fits in the buffer, false otherwise.
+ * */
+static bool BuildTelemetryJson(char *buffer, size_t len, const TelemetryPayload_t *payload)
+{
+  int written = snprintf(buffer, len, "{"
+                         "\"deviceId\":\"%s\","
+                         "\"timestamp\":\"%s\","
+                         "\"temperature\":%.2f,"
+                         "\"humidity\":%.2f,"
+                         "\"pressure\":%.2f,"
+                         "\"battery\":%u,"
+                         "\"orientation\":\"%s\""
+                         "}",
+                         payload->deviceId, payload->timestamp, payload->temperature, payload->humidity, payload->pressure, payload->battery,
+                         payload->orientation);
+
+  return (written > 0) && ((size_t) written < len);
+}
+
+/**
+ * function to build a JSON string for command acknowledgment.
+ *
+ * @param buffer Pointer to the buffer where the JSON string will be written.
+ * @param len Length of the buffer.
+ * @param ack Pointer to the CommandAckPayload_t structure containing the acknowledgment data.
+ * @return true if the JSON string was successfully built and fits in the buffer, false otherwise.
+ * */
+static bool BuildAckJson(char *buffer, size_t len, const CommandAckPayload_t *ack)
+{
+  int written = snprintf(buffer, len, "{"
+                         "\"status\":\"%s\","
+                         "\"ackAt\":\"%s\","
+                         "\"resultMessage\":\"%s\""
+                         "}",
+                         ack->status, ack->ackAt, ack->resultMessage);
+
+  return (written > 0) && ((size_t) written < len);
+}
+
+/**
+ * @brief Builds an HTTP POST request with a JSON body.
+ *
+ * This function formats an HTTP POST request string with the specified host, path, and JSON body.
+ *
+ * @param[out] out Pointer to the output buffer where the HTTP request will be written.
+ * @param[in] outLen Length of the output buffer.
+ * @param[in] host The host name or IP address of the server.
+ * @param[in] path The path of the resource on the server.
+ * @param[in] jsonBody The JSON body to be included in the POST request.
+ * @return true if the HTTP request was successfully built and fits in the output buffer, false otherwise.
+ * */
+static bool BuildHttpPostRequest(char *out, size_t outLen, const char *host, const char *path, const char *jsonBody)
+{
+  size_t bodyLen = strlen(jsonBody);
+
+  int written = snprintf(out, outLen, "POST %s HTTP/1.1\r\n"
+                         "Host: %s\r\n"
+                         "User-Agent: ST87EC/1.0\r\n"
+                         "Accept: */*\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: %u\r\n"
+                         "Connection: close\r\n"
+                         "\r\n"
+                         "%s",
+                         path, host, (unsigned) bodyLen, jsonBody);
+
+  return (written > 0) && ((size_t) written < outLen);
+}
+
+/**
+ * @brief Builds an HTTP GET request.
+ *
+ * This function formats an HTTP GET request string with the specified host and path.
+ *
+ * @param[out] out Pointer to the output buffer where the HTTP request will be written.
+ * @param[in] outLen Length of the output buffer.
+ * @param[in] host The host name or IP address of the server.
+ * @param[in] path The path of the resource on the server.
+ * @return true if the HTTP request was successfully built and fits in the output buffer, false otherwise.
+ * */
+static bool BuildHttpGetRequest(char *out, size_t outLen, const char *host, const char *path)
+{
+  int written = snprintf(out, outLen, "GET %s HTTP/1.1\r\n"
+                         "Host: %s\r\n"
+                         "Connection: close\r\n"
+                         "\r\n",
+                         path, host);
+
+  return (written > 0) && ((size_t) written < outLen);
+}
+
+//static bool HttpOpenConnection(void)
+//{
+//  ST87EC_Lib_Result_t result = ST87EC_Lib_NBIOT_HttpOpen(HTTP_SERVER_IP,
+//  HTTP_SERVER_PORT,
+//                                                         HTTP_SECURE_ID, HTTP_TIMEOUT);
+//  return (result == RESULT_OK);
+//}
+//
+//static bool HttpCloseConnection(void)
+//{
+//  ST87EC_Lib_Result_t result = ST87EC_Lib_NBIOT_HttpClose(HTTP_TIMEOUT);
+//  return (result == RESULT_OK);
+//}
+
+/**
+ * @brief Sends a raw HTTP request using the ST87EC library.
+ *
+ * This function prepares the HTTP transfer object with the provided raw request string and initiates the HTTP transfer using the ST87EC library. It also sets up a callback function to handle the HTTP response.
+ *
+ * @param[in] rawRequest Pointer to the raw HTTP request string to be sent.
+ * @return true if the HTTP transfer was initiated successfully, false otherwise.
+ * */
+static bool HttpSendRawRequest(const char *rawRequest)
+{
+  memset(&httpTxObj, 0, sizeof(httpTxObj));
+  httpTxObj.pHttpRxCallbackFunc = HttpReceiveCallback;
+  httpTxObj.KeepAlive = HTTP_KEEP_ALIVE;
+  httpTxObj.Timeout = HTTP_TIMEOUT;
+  httpTxObj.pHttpRawInStr = rawRequest;
+
+  httpResponseReady = false;
+  memset(httpResponseBuffer, 0, sizeof(httpResponseBuffer));
+
+  return (ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj) == RESULT_OK);
+}
+
+/**
+ * @brief Parses a FORCE_MEASUREMENT command from the HTTP response.
+ *
+ * This function checks if the HTTP response contains a FORCE_MEASUREMENT command and extracts the relevant information into a PendingCommand_t structure.
+ *
+ * @param[in] response Pointer to the HTTP response string.
+ * @param[out] cmd Pointer to the PendingCommand_t structure where the parsed command information will be stored.
+ * @return true if a FORCE_MEASUREMENT command was found and parsed successfully, false otherwise.
+ * */
+static bool ParseForceMeasurementCommand(const char *response, PendingCommand_t *cmd)
+{
+  if(response == NULL || cmd == NULL)
+  {
+    return false;
+  }
+
+  if(strstr(response, "\"type\":\"FORCE_MEASUREMENT\"") == NULL && strstr(response, "\"type\": \"FORCE_MEASUREMENT\"") == NULL)
+  {
+    return false;
+  }
+
+  memset(cmd, 0, sizeof(*cmd));
+  cmd->id = 0;
+  strcpy(cmd->device_id, DEVICE_ID);
+  strcpy(cmd->type, "FORCE_MEASUREMENT");
+  strcpy(cmd->payload, "immediate");
+  strcpy(cmd->status, "PENDING");
+
+  char *idPos = strstr(response, "\"id\":");
+  if(idPos != NULL)
+  {
+    sscanf(idPos, "\"id\": %d", &cmd->id);
+    if(cmd->id == 0)
+    {
+      sscanf(idPos, "\"id\":%d", &cmd->id);
+    }
+  }
+
+  return true;
+}
+
