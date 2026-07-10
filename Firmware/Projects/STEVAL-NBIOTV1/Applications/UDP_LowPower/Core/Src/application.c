@@ -47,11 +47,13 @@ typedef enum APP_State_t
   AppState_Init = 0,
   AppState_RtcInitSequence,
   AppState_Idle,
+  AppState_PrepareTelemetry,
   AppState_SendTelemetry,
-//  AppState_HTTP_Open,
-//  AppState_HTTP_SendData,
-//  AppState_HTTP_WaitResponse,
-//  AppState_HTTP_Close,
+  AppState_HTTP_Open,
+  AppState_HTTP_WaitOpen,
+  AppState_HTTP_Send,
+  AppState_HTTP_WaitResponse,
+  AppState_HTTP_Close,
 //  AppState_PollCommands,
 //  AppState_SendAck,
   AppState_GoToSleep
@@ -137,15 +139,18 @@ typedef struct
 #error "LPTIM_PERIOD too big. Try reducing APPLICATION_SLEEP_TIME_S."
 #endif
 
-#define REQUEST_TIMEOUT_DEFAULT         (10000U) // ms
+#define HTTP_OPEN_WAIT_TIMEOUT_MS       15000U
+#define HTTP_RESPONSE_WAIT_TIMEOUT_MS   15000U
 
-#define HTTP_TASK_PRIORITY               3U
+#define HTTP_TASK_PRIORITY              3U
 #define SENSOR_TASK_PRIORITY            4U
 
 /*-- event management --*/
 #define EVENT_BATCH_SIZE                5U          // size of the event batch to be sent in each UDP packet
 #define SENSORS_SAMPLE_INTERVAL_S       60U         // 1 minute
-#define TELEMETRY_SEND_INTERVAL_S             (2U * 60U)  // 5 min - send the batch every UDP_SEND_INTERVAL_S seconds
+#define TELEMETRY_SEND_INTERVAL_S       (1U * 60U)  // 1 min - send the batch every UDP_SEND_INTERVAL_S seconds
+#define MAX_POST_PER_CYCLE              3U  // max number of HTTP POST requests to send in one cycle (to avoid sending too many requests at once)
+
 // Ogni 60s il LPTIM genera il CompareMatch → HAL_LPTIM_CompareMatchCallback → queue eEventTimer.
 #define APPLICATION_SLEEP_TIME_S        SENSORS_SAMPLE_INTERVAL_S
 
@@ -191,15 +196,22 @@ uint32_t Timeout = HTTP_TIMEOUT;
 static uint32_t last_http_send_time_s = 0; // timestamp of the last HTTP send operation
 extern bool send_immediately; // flag to indicate if an immediate send is required (set by FSM events)
 
+/* Variabili introdotte per HTTPTask */
+static uint32_t g_httpWaitStartTick = 0;
+static bool g_httpTransferStarted = false;
+
+/* variabili per tenere traccia del numero di POST inviati in un ciclo, per evitare di inviare troppi POST in un breve periodo */
+static bool g_sleepTimerArmed = false; // flag to indicate if the sleep timer is armed, used to manage the sleep cycle after sending HTTP POST requests
+static uint8_t g_postsSentThisCycle = 0; // counter for the number of HTTP POST requests sent in the current cycle
+static bool g_forceImmediateCycle = false; // flag to force an immediate cycle of HTTP POST requests, set when a FSM event occurs
+
 static char httpRawRequest[HTTP_RAW_REQUEST_BUF_SIZE];
 static char httpResponseBuffer[HTTP_RESPONSE_BUF_SIZE];
 static char jsonPayloadBuffer[JSON_PAYLOAD_BUF_SIZE];
 
 static volatile bool httpResponseReady = false;
-static PendingCommand_t g_pendingCommand;
-static bool g_hasPendingCommand = false;
-
-static volatile bool httpTransferStarted = false;
+//static PendingCommand_t g_pendingCommand;
+//static bool g_hasPendingCommand = false;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -217,7 +229,6 @@ static const char* MapOrientationFromEvent(const SensorsData *data);
 
 // funzione per attendere la risposta HTTP con timeout
 static bool WaitHttpResponse(uint32_t timeoutMs);
-
 
 static bool BuildTelemetryJson(char *buffer, size_t len, const TelemetryPayload_t *payload);
 static bool BuildAckJson(char *buffer, size_t len, const CommandAckPayload_t *ack);
@@ -306,16 +317,15 @@ static void HTTPTask(void *pvParameters)
 
   SensorsData data;
 
-  printf("\r\n\r\n--------------- NB-IoT HTTP application init ---------------\r\n");
+  printf("\r\n\r\n--------------- NB-IoT HTTP Telemetry application init ---------------\r\n");
   printf("Waiting for network registration...\r\n");
 
   /* EC lib initialization */
   result = ST87EC_Lib_Init(NULL);
   configASSERT(result == RESULT_OK);
 
-  httpTxObj.pHttpRxCallbackFunc = HttpReceiveCallback;
-  httpTxObj.KeepAlive = HTTP_KEEP_ALIVE;
-  httpTxObj.Timeout = HTTP_TIMEOUT;
+//  memset(&g_currentData, 0, sizeof(g_currentData));
+//  memset(&g_currentTelemetry, 0, sizeof(g_currentTelemetry));
 
   for(;;)
   {
@@ -327,8 +337,8 @@ static void HTTPTask(void *pvParameters)
       printf("\r\nThere was an error in sequence execution...\r\n");
       printf("\r\nModem reset underway...\r\n");
 
-      httpResponseReady = false;
-      httpTransferStarted = false;
+      // buffer per la risposta HTTP azzerato per evitare di leggere dati vecchi in caso di reset del modem
+      memset(httpResponseBuffer, 0, sizeof(httpResponseBuffer));
 
       ST87EC_Lib_Reset();
       app_state = AppState_Init;
@@ -357,83 +367,69 @@ static void HTTPTask(void *pvParameters)
             /* State will be changed in GetTimeCallback */
             break;
           }
-        case AppState_GoToSleep:
-          {
-            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
-            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
-
-            /* Enable LPTIM1 running even when STOP2 mode is active */
-            /* ToDo: move this out of main loop?? */
-            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
-            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
-
-            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
-
-            app_state = AppState_Idle;
-            break;
-          }
         case AppState_Idle:
           {
-            uint32_t now = GetCurrentTimeSeconds();
-            uint32_t delta_send = now - last_http_send_time_s;
-
-            // TODO: valutare se usare anche qui la logica di "send_immediately" come per UDP, per inviare subito i dati telemetrici in caso di evento MLC/FSM
-            if(!EventBuffer_IsEmpty() || send_immediately || (delta_send >= TELEMETRY_SEND_INTERVAL_S))
+            /* Se c'è almeno un evento nel buffer, provo a inviare una telemetria */
+            if(!EventBuffer_IsEmpty())
             {
-              app_state = AppState_SendTelemetry;
+              app_state = AppState_PrepareTelemetry;
+            }
+            else
+            {
+              app_state = AppState_GoToSleep;
             }
             break;
           }
-        case AppState_SendTelemetry:
+        case AppState_PrepareTelemetry:
           {
-            TelemetryPayload_t payload;
+            memset(&data, 0, sizeof(data)); // azzera la struct data prima di riempirla con i dati correnti
 
-            /* funzione per azzerare la struct payload e la struct data prima di riempirle con i dati correnti */
-            memset(&data, 0, sizeof(data));
-            memset(&payload, 0, sizeof(payload));
-
-            // inizializzazioni generate
-            httpResponseReady = false;
-            httpTransferStarted = false;
-            memset(httpResponseBuffer, 0, sizeof(httpResponseBuffer));
-            memset(httpRawRequest, 0, sizeof(httpRawRequest));
-            memset(jsonPayloadBuffer, 0, sizeof(jsonPayloadBuffer));
-
-            // se non ci sono eventi nel buffer, NON invio niente per non sporcare il DB
+            // se non ci sono eventi nel buffer, NON invio niente
             if(!EventBuffer_Pop(&data))
             {
               printf("\r\nNo telemetry data available in event buffer\r\n");
-              app_state = AppState_PollCommands;
+              app_state = AppState_GoToSleep;
               break;
             }
 
-            /* popolo payload */
+            TelemetryPayload_t payload;
+            memset(&payload, 0, sizeof(payload));
+
+            // inizializzazioni generate
+            memset(httpRawRequest, 0, sizeof(httpRawRequest));
+            memset(jsonPayloadBuffer, 0, sizeof(jsonPayloadBuffer));
+
+            /* popolo payload JSON */
             strcpy(payload.deviceId, DEVICE_ID);
             GetCurrentTimestamp(payload.timestamp, sizeof(payload.timestamp));
             payload.temperature = data.sensor_hum_and_temp.temp;
             payload.humidity = data.sensor_hum_and_temp.hum;
             payload.pressure = data.sensor_barometer.pres;
-            payload.battery = 100; /* Placeholder */
+            payload.battery = 100; /* Placeholder momentaneo, anche se mi sa che lascero' cosi' */
             strncpy(payload.orientation, MapOrientationFromEvent(&data), sizeof(payload.orientation) - 1);
+            payload.orientation[sizeof(payload.orientation) - 1] = '\0';
 
-            // se il payload JSON non viene costruito correttamente, vado a sleep senza inviare nulla
+            httpResponseReady = false;
+
+            /* Costruzione del payload JSON */
             if(!BuildTelemetryJson(jsonPayloadBuffer, sizeof(jsonPayloadBuffer), &payload))
             {
+              /* se il payload JSON non viene costruito correttamente, vado a sleep senza inviare nulla */
               printf("\r\nFailed to build telemetry JSON\r\n");
               app_state = AppState_GoToSleep;
               break;
             }
 
-            // se la richiesta HTTP non viene costruita correttamente, vado a sleep senza inviare nulla
-            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest), HTTP_SERVER_IP, pPath, jsonPayloadBuffer))
+            /* Costruzione della richiesta HTTP POST - metodo di httpTxObj */
+            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest), HTTP_SERVER_IP, TELEMETRY_PATH, jsonPayloadBuffer))
             {
+              /* se la richiesta HTTP non viene costruita correttamente, vado a sleep senza inviare nulla */
               printf("\r\nFailed to build HTTP POST request for telemetry\r\n");
               app_state = AppState_GoToSleep;
               break;
             }
 
-            printf("\r\nSending telemetry HTTP POST...\r\n");
-            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
+            printf("\r\nPrepared telemetry HTTP POST:\r\n%s\r\n", httpRawRequest);
 
             app_state = AppState_HTTP_Open;
             break;
@@ -446,46 +442,55 @@ static void HTTPTask(void *pvParameters)
 
             if(result == RESULT_OK)
             {
-              app_state = AppState_HTTP_SendData;
+              g_httpWaitStartTick = HAL_GetTick();
+              app_state = AppState_HTTP_WaitOpen;
             }
             else
             {
-              printf(APP_LOG_PREFIX"Failed to open HTTP connection: %d\r\n", result);
+              printf(APP_LOG_PREFIX"Failed to start HTTP open sequence: %d\r\n", result);
               app_state = AppState_GoToSleep;
             }
             break;
           }
-        case AppState_HTTP_SendData:
+        case AppState_HTTP_WaitOpen:
           {
-            /* Connection not open */
-            if(eclib_state.HttpConnectionStatus == HTTP_NOT_CONNECTED)
+            if(eclib_state.HttpConnectionStatus != HTTP_NOT_CONNECTED)
             {
-              printf(APP_LOG_PREFIX"HTTP connection not open.\r\n");
-              app_state = AppState_HTTP_Open;
-              break;
+              printf(APP_LOG_PREFIX"HTTP connection is open.\r\n");
+              app_state = AppState_HTTP_Send;
             }
-
+            else if((HAL_GetTick() - g_httpWaitStartTick) > HTTP_OPEN_WAIT_TIMEOUT_MS)
+            {
+              printf(APP_LOG_PREFIX"Timeout waiting for HTTP connection open.\r\n");
+              app_state = AppState_HTTP_Close;
+            }
+            break;
+          }
+        case AppState_HTTP_Send:
+          {
+            /* Prepare HTTP request data */
             memset(&httpTxObj, 0, sizeof(httpTxObj));
             httpTxObj.pHttpRxCallbackFunc = HttpReceiveCallback;
             httpTxObj.KeepAlive = HTTP_KEEP_ALIVE;
             httpTxObj.Timeout = HTTP_TIMEOUT;
             httpTxObj.pHttpRawInStr = httpRawRequest;
 
-            printf(APP_LOG_PREFIX"Starting HTTP transfer...\r\n");
+            printf("\r\nSending HTTP request...\r\n");
+            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
             result = ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj);
 
             if(result == RESULT_OK)
             {
-              printf(APP_LOG_PREFIX"HTTP transfer started successfully.\r\n");
-              httpTransferStarted = true;
+              g_httpTransferStarted = true;
+              g_httpWaitStartTick = HAL_GetTick();
               app_state = AppState_HTTP_WaitResponse;
             }
             else
             {
               printf(APP_LOG_PREFIX"Failed to start HTTP transfer: %d\r\n", result);
               app_state = AppState_HTTP_Close;
-
             }
+
             break;
           }
         case AppState_HTTP_WaitResponse:
@@ -493,28 +498,142 @@ static void HTTPTask(void *pvParameters)
             if(httpResponseReady)
             {
               printf(APP_LOG_PREFIX"HTTP response received.\r\n");
+              printf(APP_LOG_PREFIX"Response payload: %s\r\n", httpResponseBuffer);
+
               last_http_send_time_s = GetCurrentTimeSeconds();
               send_immediately = false;
+
+              app_state = AppState_HTTP_Close;
+            }
+            else if((HAL_GetTick() - g_httpWaitStartTick) > HTTP_RESPONSE_WAIT_TIMEOUT_MS)
+            {
+              printf(APP_LOG_PREFIX"Timeout reached for waiting HTTP response.\r\n");
               app_state = AppState_HTTP_Close;
             }
             break;
           }
         case AppState_HTTP_Close:
           {
-            /* Close HTTP connection */
             printf(APP_LOG_PREFIX"Closing HTTP connection...\r\n");
+
             result = ST87EC_Lib_NBIOT_HttpClose(HTTP_TIMEOUT);
 
             if(result != RESULT_OK)
             {
               printf(APP_LOG_PREFIX"Failed to close HTTP connection: %d\r\n", result);
-
             }
 
-            httpTransferStarted = false;
+            g_httpTransferStarted = false;
             app_state = AppState_GoToSleep;
             break;
           }
+
+        case AppState_GoToSleep:
+          {
+            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
+            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
+
+            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
+            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
+
+            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+
+            app_state = AppState_Idle;
+            break;
+          }
+
+//        case AppState_GoToSleep:
+//          {
+//            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
+//            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
+//
+//            /* Enable LPTIM1 running even when STOP2 mode is active */
+//            /* ToDo: move this out of main loop?? */
+//            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
+//            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
+//
+//            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+//
+//            app_state = AppState_Idle;
+//            break;
+//          }
+//        case AppState_HTTP_Open:
+//          {
+//            /* Open HTTP connection */
+//            printf(APP_LOG_PREFIX"Opening HTTP connection...");
+//            result = ST87EC_Lib_NBIOT_HttpOpen(pHost, PortNb, SecureId, Timeout);
+//
+//            if(result == RESULT_OK)
+//            {
+//              app_state = AppState_HTTP_SendData;
+//            }
+//            else
+//            {
+//              printf(APP_LOG_PREFIX"Failed to open HTTP connection: %d\r\n", result);
+//              app_state = AppState_GoToSleep;
+//            }
+//            break;
+//          }
+//        case AppState_HTTP_SendData:
+//          {
+//            /* Connection not open */
+//            if(eclib_state.HttpConnectionStatus == HTTP_NOT_CONNECTED)
+//            {
+//              printf(APP_LOG_PREFIX"HTTP connection not open.\r\n");
+//              app_state = AppState_HTTP_Open;
+//              break;
+//            }
+//
+//            memset(&httpTxObj, 0, sizeof(httpTxObj));
+//            httpTxObj.pHttpRxCallbackFunc = HttpReceiveCallback;
+//            httpTxObj.KeepAlive = HTTP_KEEP_ALIVE;
+//            httpTxObj.Timeout = HTTP_TIMEOUT;
+//            httpTxObj.pHttpRawInStr = httpRawRequest;
+//
+//            printf(APP_LOG_PREFIX"Starting HTTP transfer...\r\n");
+//            result = ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj);
+//
+//            if(result == RESULT_OK)
+//            {
+//              printf(APP_LOG_PREFIX"HTTP transfer started successfully.\r\n");
+//              httpTransferStarted = true;
+//              app_state = AppState_HTTP_WaitResponse;
+//            }
+//            else
+//            {
+//              printf(APP_LOG_PREFIX"Failed to start HTTP transfer: %d\r\n", result);
+//              app_state = AppState_HTTP_Close;
+//
+//            }
+//            break;
+//          }
+//        case AppState_HTTP_WaitResponse:
+//          {
+//            if(httpResponseReady)
+//            {
+//              printf(APP_LOG_PREFIX"HTTP response received.\r\n");
+//              last_http_send_time_s = GetCurrentTimeSeconds();
+//              send_immediately = false;
+//              app_state = AppState_HTTP_Close;
+//            }
+//            break;
+//          }
+//        case AppState_HTTP_Close:
+//          {
+//            /* Close HTTP connection */
+//            printf(APP_LOG_PREFIX"Closing HTTP connection...\r\n");
+//            result = ST87EC_Lib_NBIOT_HttpClose(HTTP_TIMEOUT);
+//
+//            if(result != RESULT_OK)
+//            {
+//              printf(APP_LOG_PREFIX"Failed to close HTTP connection: %d\r\n", result);
+//
+//            }
+//
+//            httpTransferStarted = false;
+//            app_state = AppState_GoToSleep;
+//            break;
+//          }
 //        case AppState_PollCommands:
 //        {
 //          char commandPath[128];
@@ -564,7 +683,7 @@ static void HTTPTask(void *pvParameters)
 //
 //          break;
 //        }
-
+//
 //        case UdpApiState_TransferComplete:
 //          {
 //            // TEST ////////////////////////////////////////////////////////
@@ -576,7 +695,10 @@ static void HTTPTask(void *pvParameters)
 //            break;
 //          }
         default:
-          break;
+          {
+            app_state = AppState_GoToSleep;
+            break;
+          }
       }
     }
     LedBlinking(&eclib_state);
@@ -834,7 +956,6 @@ static void HTTPTask(void *pvParameters)
 //    LedBlinking(&eclib_state);
 //  }
 //}
-
 /**
  * @brief Prepares the system for entering sleep mode.
  *
@@ -911,6 +1032,8 @@ void HAL_LPTIM_CompareMatchCallback(LPTIM_HandleTypeDef *hlptim)
 
     HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);
 
+    g_sleepTimerArmed = false; // value di g_sleepTimerArmed a false per evitare che il timer venga riattivato in modo ricorsivo
+
     printf(">>> LPTIM CompareMatch: sending eEventTimer to queue\r\n");
 
     eEventType_t event = eEventTimer;
@@ -954,6 +1077,8 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
   if(hlptim1.Instance != 0 && valid_pin)
   {
     HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);  // stop dell'interrupt del timer
+
+    g_sleepTimerArmed = false;  // value di g_sleepTimerArmed a false per evitare che il timer venga riattivato in modo ricorsivo
 
     configASSERT(xDataQueue != NULL);
     xQueueSendFromISR(xDataQueue, &event, &xHigherPriorityTaskWoken);

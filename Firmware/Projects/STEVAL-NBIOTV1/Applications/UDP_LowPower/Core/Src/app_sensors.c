@@ -348,6 +348,7 @@ void SensorsDataTask(void *pvParameters)
     }
 
     PrintEventBufferContents();
+    printf("Event pushed. Buffer count = %u\r\n", EventBuffer_Count());
 
     // print buffer content for debugging
 //    printf("s_eventBuffer values: \r\n");
