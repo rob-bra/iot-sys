@@ -51,9 +51,13 @@
  * the "ST87EC_COLD_CONFIG_VERSION" value to ensure the new settings are saved correctly.
  */
 //#define ST87EC_COLD_CONFIG_VERSION            6
+#define ST87EC_COLD_CONFIG_VERSION            66
 
+
+#define SLEEP_ENABLE                          0
 //#define SLEEP_ENABLE                          1
 
-#define UDP_DATA_TYPE                           1
+//#define UDP_DATA_TYPE                           1
+#define UDP_DATA_TYPE                           0
 
 #endif /* __ST87EC_LIB_CONF_H__ */

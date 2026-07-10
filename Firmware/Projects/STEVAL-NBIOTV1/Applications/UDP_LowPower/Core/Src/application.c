@@ -72,6 +72,8 @@ typedef enum HTTP_API_State
 #define HTTP_SERVER_IP                   "10.68.87.69"
 #define HTTP_SERVER_PORT                 8080
 #define TELEMETRY_PATH                  "/api/v1/telemetry"
+//#define TELEMETRY_PATH                  "/post"
+
 #define HTTP_SECURE_ID                  -1
 
 #define HTTP_TIMEOUT_MS                 20000U
@@ -219,7 +221,7 @@ void AppInit(void)
 //  configASSERT(xReturned == pdPASS);
 
   /* Creation of the Queue for 4 Tasks */
-//  xDataQueue = xQueueCreate(4, sizeof(eEventType_t)); // (LUNGHEZZA CODA, DIMENSIONE ELEMENTO NELLA CODA)
+//  xDataQueue = xQueueCreate(1, sizeof(eEventType_t)); // (LUNGHEZZA CODA, DIMENSIONE ELEMENTO NELLA CODA)
 //  configASSERT(xDataQueue != NULL);
 // ***************************************************************************************
   /* a) Creation of the Message Buffer */
@@ -473,6 +475,7 @@ static void HTTPTask(void *pvParameters)
         case HttpApiState_Done:
           {
             printf("\r\nHTTP TEST request sequence completed.\r\n");
+            vTaskDelay(pdMS_TO_TICKS(1000));
             break;
           }
         case HttpApiState_GoToSleep:
@@ -639,13 +642,13 @@ static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_
 static bool BuildFixedTelemetryJson(char *json, size_t json_size)
 {
   int written = snprintf(json, json_size, "{"
-                         "\"deviceId\":\"TEST\","
-                         "\"timestamp\":\"2026-07-10T15:00:00Z\","
-                         "\"temperature\":25.00,"
-                         "\"humidity\":50.00,"
-                         "\"pressure\":1013.00,"
+                         "\"deviceId\":\"DEV001\","
+                         "\"timestamp\":\"2026-07-10T12:40:30Z\","
+                         "\"temperature\":30.60,"
+                         "\"humidity\":37.85,"
+                         "\"pressure\":992.06,"
                          "\"battery\":100,"
-                         "\"orientation\":\"UNKNOWN\""
+                         "\"orientation\":\"STATIONARY_UPRIGHT\""
                          "}");
 
   return (written >= 0) && ((size_t) written < json_size);
@@ -665,8 +668,21 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
 {
   uint32_t content_length = (uint32_t) strlen(json);
 
+//  int written = snprintf(request, request_size, "POST %s HTTP/1.1\r\n"
+//                         "Host: %s:%u\r\n"
+//                         "User-Agent: ST87EC/1.0\r\n"
+//                         "Accept: */*\r\n"
+//                         "Content-Type: application/json\r\n"
+//                         "Content-Length: %u\r\n"
+//                         "Connection: close\r\n"
+//                         "\r\n"
+//                         "%s",
+//                         TELEMETRY_PATH,
+//                         HTTP_SERVER_IP,
+//                         (unsigned int) HTTP_SERVER_PORT, (unsigned int) content_length, json);
+
   int written = snprintf(request, request_size, "POST %s HTTP/1.1\r\n"
-                         "Host: %s:%u\r\n"
+                         "Host: %s\r\n"
                          "User-Agent: ST87EC/1.0\r\n"
                          "Accept: */*\r\n"
                          "Content-Type: application/json\r\n"
@@ -675,8 +691,7 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
                          "\r\n"
                          "%s",
                          TELEMETRY_PATH,
-                         HTTP_SERVER_IP,
-                         (unsigned int) HTTP_SERVER_PORT, (unsigned int) content_length, json);
+                         HTTP_SERVER_IP, (unsigned int) content_length, json);
 
   if((written < 0) || ((size_t) written >= request_size))
   {
@@ -881,16 +896,23 @@ static void GetTimeCallback(char const *const pString)
 
   configASSERT((HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN) == HAL_OK));
 
-  uint32_t now = GetCurrentTimeSeconds();
-  last_batch_sample_time_s = now;
-//  last_udp_send_time_s = now;
+  // ************ COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ************
+//  uint32_t now = GetCurrentTimeSeconds();
+//  last_batch_sample_time_s = now;
+////  last_udp_send_time_s = now;
+//
+//  /* Wakeup the sensors data task */
+//  eEventType_t event = eEventFirst;
+//  configASSERT(xDataQueue != NULL);
+//  xQueueSend(xDataQueue, &event, portMAX_DELAY);
+  //*******************************************************************************
 
-  /* Wakeup the sensors data task */
-  eEventType_t event = eEventFirst;
-  configASSERT(xDataQueue != NULL);
-  xQueueSend(xDataQueue, &event, portMAX_DELAY);
 
-  http_state = HttpApiState_Idle; // go to idle after the first sample is sent
+    http_state = HttpApiState_PrepareFixedRequest;  // In test mode, go to PrepareFixedRequest state
+
+    //************ COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ************
+    http_state = HttpApiState_Idle;  // In normal mode, go to Idle state after setting the time
+    //*******************************************************************************
 }
 
 /**
