@@ -340,14 +340,6 @@ void SensorsDataTask(void *pvParameters)
       else
       {
         last_event_data = data;  // aggiorno ultimo evento con quello appena pushato
-
-//        if(data.event_type == eEventMLC1 || data.event_type == eEventFSM)
-        /* Invio immediato SOLO per eventi FSM realmente critici */
-        if(data.event_type == eEventFSM && (data.fsm_impact || data.fsm_free_fall))
-        {
-          send_immediately = true;
-        }
-        printf("Event pushed. Buffer count = %u\r\n", EventBuffer_Count());
       }
     }
     else
@@ -355,8 +347,7 @@ void SensorsDataTask(void *pvParameters)
       printf("Event type %d is the same as the last event, not pushing to buffer to avoid duplicate UDP packets\r\n", data.event_type);
     }
 
-//    PrintEventBufferContents();
-    printf("Event pushed. Buffer count = %u\r\n", EventBuffer_Count());
+    PrintEventBufferContents();
 
     // print buffer content for debugging
 //    printf("s_eventBuffer values: \r\n");
@@ -475,7 +466,7 @@ static void Accelerometer_Read(stmdev_ctx_t *dev_ctx, AccelerometerData *values,
     values->y = data_xl.mg[1];
     values->z = data_xl.mg[2];
 
-//    printf("Accelerometer [mg]: x=%4.2f\ty=%4.2f\tz=%4.2f\r\n", values->x, values->y, values->z);
+    printf("Accelerometer [mg]: x=%4.2f\ty=%4.2f\tz=%4.2f\r\n", values->x, values->y, values->z);
   }
   else
   {
@@ -554,7 +545,7 @@ static void Barometer_Read(stmdev_ctx_t *dev_ctx, BarometerData *values)
 
     values->pres = data.pressure.hpa;
 
-//    printf("Pressure [hPa]: %6.2f\r\n", values->pres);
+    printf("Pressure [hPa]: %6.2f\r\n", values->pres);
   }
   else
   {
@@ -603,7 +594,7 @@ static void HumidityAndTemp_Read(stmdev_ctx_t *dev_ctx, HumidityAndTemperature *
   }
   else
   {
-//    printf("Temperature [C]: %0.2f\r\nHumidity [%%RH]: %0.2f\r\n", values->temp, values->hum);
+    printf("Temperature [C]: %0.2f\r\nHumidity [%%RH]: %0.2f\r\n", values->temp, values->hum);
   }
 }
 
