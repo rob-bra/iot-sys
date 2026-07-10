@@ -204,6 +204,8 @@ static bool g_httpTransferStarted = false;
 static bool g_sleepTimerArmed = false; // flag to indicate if the sleep timer is armed, used to manage the sleep cycle after sending HTTP POST requests
 static uint8_t g_postsSentThisCycle = 0; // counter for the number of HTTP POST requests sent in the current cycle
 static bool g_forceImmediateCycle = false; // flag to force an immediate cycle of HTTP POST requests, set when a FSM event occurs
+static bool g_firstBootSampleSent = false; // flag to indicate if the first boot sample has been sent, used to ensure that the first sample is sent even if no events occur
+static uint32_t g_lastErrorResetTimeMs = 0; // timestamp of the last modem reset due to an error, used to avoid too frequent resets
 
 static char httpRawRequest[HTTP_RAW_REQUEST_BUF_SIZE];
 static char httpResponseBuffer[HTTP_RESPONSE_BUF_SIZE];
@@ -339,6 +341,18 @@ static void HTTPTask(void *pvParameters)
 
       // buffer per la risposta HTTP azzerato per evitare di leggere dati vecchi in caso di reset del modem
       memset(httpResponseBuffer, 0, sizeof(httpResponseBuffer));
+      memset(httpRawRequest, 0, sizeof(httpRawRequest));
+      memset(jsonPayloadBuffer, 0, sizeof(jsonPayloadBuffer));
+
+      // resetto le variabili di stato per evitare di rimanere bloccati in uno stato errato dopo il reset del modem
+      httpResponseReady = false;
+      g_httpTransferStarted = false;
+      g_sleepTimerArmed = false;
+      g_postsSentThisCycle = 0;
+      g_forceImmediateCycle = false;
+      send_immediately = false;
+      g_lastErrorResetTimeMs = HAL_GetTick();
+      //*********************************************
 
       ST87EC_Lib_Reset();
       app_state = AppState_Init;
@@ -369,14 +383,49 @@ static void HTTPTask(void *pvParameters)
           }
         case AppState_Idle:
           {
-            /* Se c'è almeno un evento nel buffer, provo a inviare una telemetria */
-            if(!EventBuffer_IsEmpty())
+            uint32_t now = GetCurrentTimeSeconds();
+            uint16_t buffered = EventBuffer_Count(); // numero di eventi attualmente presenti nel buffer
+            bool timeout_send = false;
+
+            /* Cooldown dopo reset modem: non riprovare subito */
+              if((HAL_GetTick() - g_lastErrorResetTimeMs) < 5000U)
+              {
+                vTaskDelay(pdMS_TO_TICKS(200));
+                break;
+              }
+              //*************************************************
+
+            // se sono passati più di TELEMETRY_SEND_INTERVAL_S secondi dall'ultimo invio HTTP, imposto il flag timeout_send a true
+            if((now - last_http_send_time_s) >= TELEMETRY_SEND_INTERVAL_S)
             {
+              timeout_send = true;
+            }
+
+            // se ci sono eventi critici (FSM) nel buffer (buffer non vuoto e send_immediately=true)
+            if(send_immediately && buffered > 0)
+            {
+              printf("Immediate event detected -> start send cycle\r\n");
+              g_forceImmediateCycle = true;
+              g_postsSentThisCycle = 0;
+              app_state = AppState_PrepareTelemetry;
+            }
+            else if(buffered >= EVENT_BATCH_SIZE) // se il buffer è pieno (numero di eventi >= EVENT_BATCH_SIZE)
+            {
+              printf("Batch full (%u events) -> start send cycle\r\n", buffered);
+              g_forceImmediateCycle = false;
+              g_postsSentThisCycle = 0;
+              app_state = AppState_PrepareTelemetry;
+            }
+            else if(timeout_send && buffered > 0) // se è scaduto il timeout di invio e ci sono eventi nel buffer
+            {
+              printf("Timeout expired with %u buffered events -> start send cycle\r\n", buffered);
+              g_forceImmediateCycle = false;
+              g_postsSentThisCycle = 0;
               app_state = AppState_PrepareTelemetry;
             }
             else
             {
-              app_state = AppState_GoToSleep;
+              vTaskDelay(pdMS_TO_TICKS(200));
             }
             break;
           }
@@ -501,7 +550,6 @@ static void HTTPTask(void *pvParameters)
               printf(APP_LOG_PREFIX"Response payload: %s\r\n", httpResponseBuffer);
 
               last_http_send_time_s = GetCurrentTimeSeconds();
-              send_immediately = false;
 
               app_state = AppState_HTTP_Close;
             }
@@ -524,19 +572,46 @@ static void HTTPTask(void *pvParameters)
             }
 
             g_httpTransferStarted = false;
-            app_state = AppState_GoToSleep;
+            g_postsSentThisCycle++; // incremento il contatore dei POST inviati in questo ciclo
+
+            /* Se era un invio immediato per evento critico, invio solo un evento e poi termino il ciclo */
+            if(g_forceImmediateCycle)
+            {
+              send_immediately = false;
+              g_forceImmediateCycle = false;
+              g_postsSentThisCycle = 0;
+              app_state = AppState_GoToSleep;
+            }
+            else
+            {
+              /* batch/timeout mode: continua a smaltire al massimo MAX_POST_PER_CYCLE eventi */
+              if((EventBuffer_Count() > 0) && (g_postsSentThisCycle < MAX_POST_PER_CYCLE))
+              {
+                app_state = AppState_PrepareTelemetry;
+              }
+              else
+              {
+                send_immediately = false;
+                g_postsSentThisCycle = 0;
+                app_state = AppState_GoToSleep;
+              }
+            }
             break;
           }
 
         case AppState_GoToSleep:
           {
-            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
-            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
+            if(!g_sleepTimerArmed)
+            {
+              printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
+              printf("Waiting for ST87M01 to go to sleep as well...\r\n");
 
-            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
-            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
+              __HAL_RCC_LPTIM1_CLKAM_ENABLE();
+              __HAL_RCC_RTCAPB_CLKAM_ENABLE();
 
-            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+              HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+              g_sleepTimerArmed = true;
+            }
 
             app_state = AppState_Idle;
             break;
@@ -705,257 +780,7 @@ static void HTTPTask(void *pvParameters)
   }
 }
 
-/* ----------------------------------------------- HTTP Task FIRST GENERATION ----------------------------------------------- */
-//static void HTTPTask(void *pvParameters)
-//{
-//  UNUSED(pvParameters);
-//
-//  ST87EC_Lib_Result_t result;
-//  ST87EC_Lib_Status_t eclib_state;
-//  SensorsData data;
-//
-//  printf("\r\n\r\n--------------- NB-IoT HTTP application init ---------------\r\n");
-//  printf("Waiting for network registration...\r\n");
-//
-//  result = ST87EC_Lib_Init(NULL);
-//  configASSERT(result == RESULT_OK);
-//
-//  for(;;)
-//  {
-//    result = ST87EC_Lib_Scheduler();
-//
-//    if(result == RESULT_KO)
-//    {
-//      printf("\r\nThere was an error in sequence execution...\r\n");
-//      printf("\r\nModem reset underway...\r\n");
-//      ST87EC_Lib_Reset();
-//      app_state = AppState_Init;
-//      printf("\r\nModem reset complete...\r\n");
-//    }
-//
-//    ST87EC_Lib_GetState(&eclib_state);
-//
-//    if((eclib_state.RegistrationStatus == REGISTERED) && (eclib_state.OnGoingSequence == SEQUENCE_NONE))
-//    {
-//      switch(app_state)
-//      {
-//        case AppState_Init:
-//          {
-//            printf("Registration complete. Attached to NB-IoT network!\r\n\r\n");
-//
-//            configASSERT(ST87EC_Lib_GetTime(GetTimeCallback, HTTP_TIMEOUT) == RESULT_OK);
-//            app_state = AppState_RtcInitSequence;
-//            break;
-//          }
-//
-//        case AppState_RtcInitSequence:
-//          {
-//            /* waiting for GetTimeCallback */
-//            break;
-//          }
-//
-//        case AppState_GoToSleep:
-//          {
-//            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
-//            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
-//
-//            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
-//            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
-//
-//            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
-//
-//            app_state = AppState_Idle;
-//            break;
-//          }
-//
-//        case AppState_Idle:
-//          {
-//            uint32_t now = GetCurrentTimeSeconds();
-//            uint32_t delta_send = now - last_http_send_time_s;
-//
-//            if(!EventBuffer_IsEmpty() || send_immediately || (delta_send >= UDP_SEND_INTERVAL_S))
-//            {
-//              app_state = AppState_SendTelemetry;
-//            }
-//            break;
-//          }
-//
-//        case AppState_SendTelemetry:
-//          {
-//            TelemetryPayload_t payload;
-//
-//            memset(&payload, 0, sizeof(payload));
-//            memset(&data, 0, sizeof(data));
-//
-//            /* Se non ci sono eventi nel buffer, faccio comunque una telemetria periodica "vuota" dal punto di vista eventi */
-//            if(!EventBuffer_Pop(&data))
-//            {
-//              data.event_type = eEventTimer;
-//              data.mlc_output = 0;
-//              data.fsm_impact = false;
-//              data.fsm_free_fall = false;
-//              data.sensor_hum_and_temp.temp = 0.0f;
-//              data.sensor_hum_and_temp.hum = 0.0f;
-//              data.sensor_barometer.pres = 0.0f;
-//            }
-//
-//            strcpy(payload.deviceId, DEVICE_ID);
-//            GetCurrentTimestamp(payload.timestamp, sizeof(payload.timestamp));
-//            payload.temperature = data.sensor_hum_and_temp.temp;
-//            payload.humidity = data.sensor_hum_and_temp.hum;
-//            payload.pressure = data.sensor_barometer.pres;
-//            payload.battery = 100; /* Placeholder */
-//            strncpy(payload.orientation, MapOrientationFromEvent(&data), sizeof(payload.orientation) - 1);
-//
-//            if(!BuildTelemetryJson(jsonPayloadBuffer, sizeof(jsonPayloadBuffer), &payload))
-//            {
-//              printf("\r\nFailed to build telemetry JSON\r\n");
-//              app_state = AppState_GoToSleep;
-//              break;
-//            }
-//
-//            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest),
-//            HTTP_SERVER_IP,
-//                                     "/api/v1/telemetry", jsonPayloadBuffer))
-//            {
-//              printf("\r\nFailed to build HTTP POST request for telemetry\r\n");
-//              app_state = AppState_GoToSleep;
-//              break;
-//            }
-//
-//            printf("\r\nSending telemetry HTTP POST...\r\n");
-//            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
-//
-//            if(HttpOpenConnection())
-//            {
-//              if(HttpSendRawRequest(httpRawRequest))
-//              {
-//                last_http_send_time_s = GetCurrentTimeSeconds();
-//              }
-//              HttpCloseConnection();
-//            }
-//            else
-//            {
-//              printf("\r\nHTTP open connection failed\r\n");
-//            }
-//
-//            send_immediately = false;
-//            app_state = AppState_PollCommands;
-//            break;
-//          }
-//
-//        case AppState_PollCommands:
-//          {
-//            char commandPath[128];
-//
-//            snprintf(commandPath, sizeof(commandPath), "/api/v1/devices/%s/commands/pending",
-//            DEVICE_ID);
-//
-//            if(!BuildHttpGetRequest(httpRawRequest, sizeof(httpRawRequest), HTTP_SERVER_IP, commandPath))
-//            {
-//              printf("\r\nFailed to build HTTP GET request for command polling\r\n");
-//              app_state = AppState_GoToSleep;
-//              break;
-//            }
-//
-//            printf("\r\nPolling commands...\r\n");
-//            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
-//
-//            g_hasPendingCommand = false;
-//
-//            if(HttpOpenConnection())
-//            {
-//              if(HttpSendRawRequest(httpRawRequest))
-//              {
-//                if(ParseForceMeasurementCommand(httpResponseBuffer, &g_pendingCommand))
-//                {
-//                  g_hasPendingCommand = true;
-//                  printf("\r\nPending command detected: %s (id=%d)\r\n", g_pendingCommand.type, g_pendingCommand.id);
-//                }
-//              }
-//              HttpCloseConnection();
-//            }
-//            else
-//            {
-//              printf("\r\nHTTP open connection failed for command polling\r\n");
-//            }
-//
-//            if(g_hasPendingCommand)
-//            {
-//              app_state = AppState_SendAck;
-//            }
-//            else
-//            {
-//              app_state = AppState_GoToSleep;
-//            }
-//
-//            break;
-//          }
-//
-//        case AppState_SendAck:
-//          {
-//            CommandAckPayload_t ack;
-//            char ackPath[160];
-//
-//            memset(&ack, 0, sizeof(ack));
-//
-//            strcpy(ack.status, "EXECUTED");
-//            GetCurrentTimestamp(ack.ackAt, sizeof(ack.ackAt));
-//            strcpy(ack.resultMessage, "Measurement executed successfully");
-//
-//            if(strcmp(g_pendingCommand.type, "FORCE_MEASUREMENT") == 0)
-//            {
-//              printf("\r\nExecuting FORCE_MEASUREMENT command...\r\n");
-//              send_immediately = true;
-//            }
-//
-//            if(!BuildAckJson(jsonPayloadBuffer, sizeof(jsonPayloadBuffer), &ack))
-//            {
-//              printf("\r\nFailed to build ACK JSON\r\n");
-//              app_state = AppState_GoToSleep;
-//              break;
-//            }
-//
-//            snprintf(ackPath, sizeof(ackPath), "/api/v1/devices/%s/commands/%d/ack",
-//            DEVICE_ID,
-//                     g_pendingCommand.id);
-//
-//            if(!BuildHttpPostRequest(httpRawRequest, sizeof(httpRawRequest),
-//            HTTP_SERVER_IP,
-//                                     ackPath, jsonPayloadBuffer))
-//            {
-//              printf("\r\nFailed to build HTTP POST request for ACK\r\n");
-//              app_state = AppState_GoToSleep;
-//              break;
-//            }
-//
-//            printf("\r\nSending command ACK...\r\n");
-//            printf("\r\nRequest:\r\n%s\r\n", httpRawRequest);
-//
-//            if(HttpOpenConnection())
-//            {
-//              HttpSendRawRequest(httpRawRequest);
-//              HttpCloseConnection();
-//            }
-//            else
-//            {
-//              printf("\r\nHTTP open connection failed for ACK\r\n");
-//            }
-//
-//            g_hasPendingCommand = false;
-//            app_state = AppState_GoToSleep;
-//            break;
-//          }
-//
-//        default:
-//          app_state = AppState_GoToSleep;
-//          break;
-//      }
-//    }
-//
-//    LedBlinking(&eclib_state);
-//  }
-//}
+
 /**
  * @brief Prepares the system for entering sleep mode.
  *
@@ -1158,9 +983,18 @@ static void GetTimeCallback(char const *const pString)
   last_http_send_time_s = now;
 
   /* Wakeup the sensors data task */
-  eEventType_t event = eEventFirst;
-  configASSERT(xDataQueue != NULL);
-  xQueueSend(xDataQueue, &event, portMAX_DELAY);
+//  eEventType_t event = eEventFirst;
+//  configASSERT(xDataQueue != NULL);
+//  xQueueSend(xDataQueue, &event, portMAX_DELAY);
+
+  /* Wakeup the sensors data task only once at first boot */
+  if(!g_firstBootSampleSent)
+  {
+    eEventType_t event = eEventFirst;
+    configASSERT(xDataQueue != NULL);
+    xQueueSend(xDataQueue, &event, portMAX_DELAY);
+    g_firstBootSampleSent = true;
+  }
 
   app_state = AppState_Idle;
 }
