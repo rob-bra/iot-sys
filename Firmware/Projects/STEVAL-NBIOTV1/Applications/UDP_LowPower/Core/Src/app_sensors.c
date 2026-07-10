@@ -330,21 +330,32 @@ void SensorsDataTask(void *pvParameters)
       sameEvent = false;
     }
 
-    if(!sameEvent)
+//    if(!sameEvent)
+//    {
+//      // provo a pushare l'evento nel buffer
+//      if(!EventBuffer_Push(&data))
+//      {
+//        printf("Event buffer full, dropping event type %d\r\n", data.event_type);
+//      }
+//      else
+//      {
+//        last_event_data = data;  // aggiorno ultimo evento con quello appena pushato
+//      }
+//    }
+//    else
+//    {
+//      printf("Event type %d is the same as the last event, not pushing to buffer to avoid duplicate UDP packets\r\n", data.event_type);
+//    }
+
+    /* ****************************** BYPASSO LA LOGICA "if(!sameEvent) ***********************************/
+    // provo a pushare l'evento nel buffer
+    if(!EventBuffer_Push(&data))
     {
-      // provo a pushare l'evento nel buffer
-      if(!EventBuffer_Push(&data))
-      {
-        printf("Event buffer full, dropping event type %d\r\n", data.event_type);
-      }
-      else
-      {
-        last_event_data = data;  // aggiorno ultimo evento con quello appena pushato
-      }
+      printf("Event buffer full, dropping event type %d\r\n", data.event_type);
     }
     else
     {
-      printf("Event type %d is the same as the last event, not pushing to buffer to avoid duplicate UDP packets\r\n", data.event_type);
+      last_event_data = data;  // aggiorno ultimo evento con quello appena pushato
     }
 
     PrintEventBufferContents();
