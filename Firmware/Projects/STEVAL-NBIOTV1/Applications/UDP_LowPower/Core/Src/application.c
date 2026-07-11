@@ -51,10 +51,11 @@ typedef enum HTTP_API_State
   HttpApiState_Done,                // stato di TEST --> vado a commentare il task SensorsDataTask
   HttpApiState_PrepareTelemetry,
   HttpApiState_OpenConnection,
+  HttpApiState_WaitOpen,
   HttpApiState_SendRequest,
   HttpApiState_WaitResponse,
   HttpApiState_CloseConnection,
-  HttpApiState_GoToSleep,
+//  HttpApiState_GoToSleep,
 } HTTP_API_State;
 
 /* Private define ------------------------------------------------------------*/
@@ -201,6 +202,10 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
  */
 void AppInit(void)
 {
+  /* Creation of the Queue for 4 Tasks */
+  xDataQueue = xQueueCreate(4, sizeof(eEventType_t)); // (LUNGHEZZA CODA, DIMENSIONE ELEMENTO NELLA CODA)
+  configASSERT(xDataQueue != NULL);
+
   BaseType_t xReturned; // var per controllare l'esito di creazione del task
 
   xReturned = xTaskCreate(HTTPTask, "http_task",
@@ -212,17 +217,13 @@ void AppInit(void)
   configASSERT(xReturned == pdPASS);  // verifica di corretta creazione del task
 
 // **************** COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ****************
-//  xReturned = xTaskCreate(SensorsDataTask, "sensors_task",
-//  SENSOR_TASK_STACK_SIZE,
-//                          NULL,
-//                          SENSOR_TASK_PRIORITY,
-//                          &xSensorsDataTaskHandle);
-//
-//  configASSERT(xReturned == pdPASS);
+  xReturned = xTaskCreate(SensorsDataTask, "sensors_task",
+  SENSOR_TASK_STACK_SIZE,
+                          NULL,
+                          SENSOR_TASK_PRIORITY,
+                          &xSensorsDataTaskHandle);
 
-  /* Creation of the Queue for 4 Tasks */
-//  xDataQueue = xQueueCreate(1, sizeof(eEventType_t)); // (LUNGHEZZA CODA, DIMENSIONE ELEMENTO NELLA CODA)
-//  configASSERT(xDataQueue != NULL);
+  configASSERT(xReturned == pdPASS);
 // ***************************************************************************************
   /* a) Creation of the Message Buffer */
 //  xSensorDataMBHandle = xMessageBufferCreate(sizeof(SensorsData) * 2);
@@ -265,7 +266,7 @@ static void HTTPTask(void *pvParameters)
   ST87EC_Lib_Result_t result;
   ST87EC_Lib_Status_t eclib_state;
 
-  bool test_mode = true;  // set to true to test the HTTP request with a fixed payload, without waiting for sensor data
+  bool test_mode = false;  // set to true to test the HTTP request with a fixed payload, without waiting for sensor data
 
   printf("\r\n\r\n--------------- NB-IoT HTTP application init ---------------\r\n");
   printf("Waiting for network registration...\r\n");
@@ -339,22 +340,57 @@ static void HTTPTask(void *pvParameters)
             }
             break;
           }
-        case HttpApiState_PrepareFixedRequest:  // stato di TEST --> vado a commentare il task SensorsDataTask e lo stato HttpApiState_PrepareTelemetry
+//        case HttpApiState_PrepareFixedRequest:  // stato di TEST --> vado a commentare il task SensorsDataTask e lo stato HttpApiState_PrepareTelemetry
+//          {
+//            // Prepare a fixed HTTP request (for testing purposes)
+//            memset(g_http_json, 0, sizeof(g_http_json));
+//            memset(g_http_request, 0, sizeof(g_http_request));
+//
+//            if(!BuildFixedTelemetryJson(g_http_json, sizeof(g_http_json)))
+//            {
+//              printf("\r\nFailed to build fixed JSON request.\r\n");
+//              http_state = HttpApiState_Done;
+//              break;
+//            }
+//
+//            if(!BuildHttpPostRequest(g_http_json, g_http_request, sizeof(g_http_request)))
+//            {
+//              printf("\r\nFailed to build HTTP POST request.\r\n");
+//              http_state = HttpApiState_Done;
+//              break;
+//            }
+//
+//            printf("\r\nHTTP JSON:\r\n%s\r\n", g_http_json);
+//            printf("\r\nHTTP REQUEST:\r\n%s\r\n", g_http_request);
+//
+//            httpTxObj.pHttpRawInStr = g_http_request;
+//            http_response_received = false;
+//            http_state = HttpApiState_OpenConnection;
+//            break;
+//          }
+        case HttpApiState_PrepareTelemetry:
           {
-            // Prepare a fixed HTTP request (for testing purposes)
+            if(!g_hasPendingTelemetry)
+            {
+              http_state = HttpApiState_Idle;
+              break;
+            }
+
             memset(g_http_json, 0, sizeof(g_http_json));
             memset(g_http_request, 0, sizeof(g_http_request));
 
-            if(!BuildFixedTelemetryJson(g_http_json, sizeof(g_http_json)))
+            if(!BuildTelemetryJson(&g_pendingTelemetry, g_http_json, sizeof(g_http_json)))
             {
-              printf("\r\nFailed to build fixed JSON request.\r\n");
+              // If building the telemetry JSON fails, reset the pending telemetry flag and go back to idle state
+              g_hasPendingTelemetry = false;
               http_state = HttpApiState_Done;
               break;
             }
 
             if(!BuildHttpPostRequest(g_http_json, g_http_request, sizeof(g_http_request)))
             {
-              printf("\r\nFailed to build HTTP POST request.\r\n");
+              // If building the HTTP POST request fails, reset the pending telemetry flag and go back to idle state
+              g_hasPendingTelemetry = false;
               http_state = HttpApiState_Done;
               break;
             }
@@ -367,41 +403,6 @@ static void HTTPTask(void *pvParameters)
             http_state = HttpApiState_OpenConnection;
             break;
           }
-//        case HttpApiState_PrepareTelemetry:
-//
-//          if(!g_hasPendingTelemetry)
-//          {
-//            http_state = HttpApiState_Idle;
-//            break;
-//          }
-//
-//          memset(g_http_json, 0, sizeof(g_http_json));
-//          memset(g_http_request, 0, sizeof(g_http_request));
-//
-//          if(!BuildTelemetryJson(&g_pendingTelemetry, g_http_json, sizeof(g_http_json)))
-//          {
-//            // If building the telemetry JSON fails, reset the pending telemetry flag and go back to idle state
-//            g_hasPendingTelemetry = false;
-//            http_state = HttpApiState_Idle;
-//            break;
-//          }
-//
-//          if(!BuildHttpPostRequest(g_http_json, g_http_request, sizeof(g_http_request)))
-//          {
-//            // If building the HTTP POST request fails, reset the pending telemetry flag and go back to idle state
-//            g_hasPendingTelemetry = false;
-//            http_state = HttpApiState_Idle;
-//            break;
-//          }
-//
-//          printf("\r\nHTTP JSON:\r\n%s\r\n", g_http_json);
-//          printf("\r\nHTTP REQUEST:\r\n%s\r\n", g_http_request);
-//
-//          httpTxObj.pHttpRawInStr = g_http_request;
-//          http_response_received = false;
-//          http_state = HttpApiState_OpenConnection;
-//          break;
-//      }
         case HttpApiState_OpenConnection:
           {
             printf("\r\nOpening HTTP connection...\r\n");
@@ -409,7 +410,7 @@ static void HTTPTask(void *pvParameters)
 
             if(result == RESULT_OK)
             {
-              http_state = HttpApiState_SendRequest;
+              http_state = HttpApiState_WaitOpen;
             }
             else
             {
@@ -418,16 +419,26 @@ static void HTTPTask(void *pvParameters)
             }
             break;
           }
+        case HttpApiState_WaitOpen:
+          {
+            if(eclib_state.HttpConnectionStatus == HTTP_CONNECTED)
+            {
+              printf("\r\nHTTP connection opened successfully.\r\n");
+              vTaskDelay(pdMS_TO_TICKS(300));
+              http_state = HttpApiState_SendRequest;
+            }
+            break;
+          }
         case HttpApiState_SendRequest:
           {
-            if(eclib_state.HttpConnectionStatus == HTTP_NOT_CONNECTED)
-            {
-              printf("HTTP connection not open\r\n");
-              http_state = HttpApiState_OpenConnection;
-              break;
-            }
+//            if(eclib_state.HttpConnectionStatus == HTTP_NOT_CONNECTED)
+//            {
+//              printf("HTTP connection not open\r\n");
+//              http_state = HttpApiState_OpenConnection;
+//              break;
+//            }
 
-            printf("\r\nSending HTTP POST request...\r\n");
+            printf("\r\nSending HTTP POST request...\r\n\n");
             result = ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj);
 
             if(result == RESULT_OK)
@@ -443,6 +454,7 @@ static void HTTPTask(void *pvParameters)
           }
         case HttpApiState_WaitResponse:
           {
+            /* attende la ricezione della risposta HTTP tramite la callback HTTPReceiveCallback */
             if(http_response_received)
             {
               printf("\r\nHTTP response received.\r\n");
@@ -468,34 +480,40 @@ static void HTTPTask(void *pvParameters)
             {
               // Reset the pending telemetry flag after closing the connection
               g_hasPendingTelemetry = false;
-              http_state = HttpApiState_GoToSleep;
+              http_state = HttpApiState_Done;
             }
             break;
           }
         case HttpApiState_Done:
           {
-            printf("\r\nHTTP TEST request sequence completed.\r\n");
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            static bool printed = false;
+            if(!printed)
+            {
+              printf("\r\nHTTP TEST request sequence completed.\r\n");
+              printed = true;
+            }
+
+            vTaskSuspend(NULL);
             break;
           }
-        case HttpApiState_GoToSleep:
-          {
-            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
-            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
-
-            /* Enable LPTIM1 running even when STOP2 mode is active */
-            /* ToDo: move this out of main loop?? */
-            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
-            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
-
-            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
-
-            http_state = HttpApiState_Idle;
-            break;
-          }
+//        case HttpApiState_GoToSleep:
+//          {
+//            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
+//            printf("Waiting for ST87M01 to go to sleep as well...\r\n");
+//
+//            /* Enable LPTIM1 running even when STOP2 mode is active */
+//            /* ToDo: move this out of main loop?? */
+//            __HAL_RCC_LPTIM1_CLKAM_ENABLE();
+//            __HAL_RCC_RTCAPB_CLKAM_ENABLE();
+//
+//            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+//
+//            http_state = HttpApiState_Idle;
+//            break;
+//          }
         default:
           {
-            http_state = HttpApiState_Init;
+//            http_state = HttpApiState_Init;
             break;
           }
       }
@@ -530,9 +548,11 @@ static void HTTPReceiveCallback(char const *const receivedData)
   else
   {
     printf(APP_LOG_PREFIX"#HTTPRECV: No data received.\r\n");
+    http_response_received = true;
   }
 
-  http_state = HttpApiState_CloseConnection;
+  // per adesso la gestione della chiusura della connessione la faccio nello stato HttpApiState_WaitResponse
+//  http_state = HttpApiState_CloseConnection;
 }
 
 /**
@@ -585,7 +605,7 @@ static const char* GetOrientationString(const SensorsData *data)
     }
   }
 
-  return "UNKNOWN";
+  return "DEFAULT_STATIONARY_UPRIGHT"; // Default orientation if event type is not eEventMLC1
 }
 
 /**
@@ -691,7 +711,8 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
                          "\r\n"
                          "%s",
                          TELEMETRY_PATH,
-                         HTTP_SERVER_IP, (unsigned int) content_length, json);
+                         HTTP_SERVER_IP,
+                         (unsigned int) content_length, json);
 
   if((written < 0) || ((size_t) written >= request_size))
   {
@@ -896,23 +917,22 @@ static void GetTimeCallback(char const *const pString)
 
   configASSERT((HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN) == HAL_OK));
 
-  // ************ COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ************
+// ************ COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ************
 //  uint32_t now = GetCurrentTimeSeconds();
 //  last_batch_sample_time_s = now;
 ////  last_udp_send_time_s = now;
 //
-//  /* Wakeup the sensors data task */
-//  eEventType_t event = eEventFirst;
-//  configASSERT(xDataQueue != NULL);
-//  xQueueSend(xDataQueue, &event, portMAX_DELAY);
-  //*******************************************************************************
+  /* Wakeup the sensors data task */
+  eEventType_t event = eEventFirst;
+  configASSERT(xDataQueue != NULL);
+  xQueueSend(xDataQueue, &event, portMAX_DELAY);
+//*******************************************************************************
 
+//    http_state = HttpApiState_PrepareFixedRequest;  // In test mode, go to PrepareFixedRequest state
 
-    http_state = HttpApiState_PrepareFixedRequest;  // In test mode, go to PrepareFixedRequest state
-
-    //************ COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ************
-    http_state = HttpApiState_Idle;  // In normal mode, go to Idle state after setting the time
-    //*******************************************************************************
+//************ COMMENTO PER FARE TEST DEL TASK HTTP, SENZA I SENSORI ************
+  http_state = HttpApiState_Idle;  // In normal mode, go to Idle state after setting the time
+//*******************************************************************************
 }
 
 /**
