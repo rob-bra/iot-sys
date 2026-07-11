@@ -1,0 +1,9 @@
+sono andato a modificare SLEEP_ENABLE nel file "st87ec_lib_conf.h" nella cartella "Inc":
+
+~ Valori originali: 	//#define ST87EC_COLD_CONFIG_VERSION            6
+		    	//#define SLEEP_ENABLE                          1
+		    	#define UDP_DATA_TYPE                        	1
+
+~ Valori modificati:    #define ST87EC_COLD_CONFIG_VERSION            	66
+		    	#define SLEEP_ENABLE                         	0
+		    	#define UDP_DATA_TYPE                           0

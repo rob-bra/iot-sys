@@ -1,0 +1,275 @@
+--------------- NB-IoT HTTP application init ---------------
+Waiting for network registration...
+Humidity and Temperature sensor initialization OK!
+Barometer initialization OK!
+Accelerometer initialization OK!
+
+FSM event detected!
+FSM_STATUS: fsm1(impact)=0, fsm2(free-fall)=0
+FSM_OUTS1 -> <No event>
+
+Resuming Sensor Task...
+Temperature [C]: 33.53
+Humidity [%RH]: 41.25
+Pressure [hPa]: 995.54
+Accelerometer [mg]: x=-27.33    y=-9.76 z=140.54
+
+Event Buffer Contents:
+Index 0: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+<--
+--> AT#NVMRD=5,12,1
+<-- #REBOOT_RESET
+<--
+<-- #SIMST: 1
+<--
+<-- #NVMRD: 42
+<--
+<-- OK
+<--
+<-- +CEREG: 2,"","",,,,"",""
+
+FSM event detected!
+FSM_STATUS: fsm1(impact)=1, fsm2(free-fall)=0
+FSM_OUTS1 (FSM1) -> <Impact>
+
+Resuming Sensor Task...
+Temperature [C]: 33.57
+Humidity [%RH]: 41.22
+Pressure [hPa]: 995.52
+Accelerometer [mg]: x=-7.81     y=-5.86 z=255.71
+
+Event Buffer Contents:
+Index 0: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+Index 1: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=1, FSM_FF=0
+
+MLC event detected!
+MLC1_SRC (0x34) = 0x08 -> <In motion>
+
+Resuming Sensor Task...
+Temperature [C]: 33.56
+Humidity [%RH]: 41.27
+
+Read error!
+Accelerometer [mg]: x=-3.90     y=-1.95 z=126.88
+
+Event Buffer Contents:
+Index 0: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+Index 1: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=1, FSM_FF=0
+Index 2: Event Type = MLC1 , MLC Output = 0x08, FSM_IMPACT=0, FSM_FF=0
+
+MLC event detected!
+MLC1_SRC (0x34) = 0x00 -> <Stationary - Upright>
+
+Resuming Sensor Task...
+Temperature [C]: 33.54
+Humidity [%RH]: 41.21
+Pressure [hPa]: 995.50
+Accelerometer [mg]: x=-2.93     y=-1.95 z=128.83
+
+Event Buffer Contents:
+Index 0: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+Index 1: Event Type = FSM  , MLC Output = 0x00, FSM_IMPACT=1, FSM_FF=0
+Index 2: Event Type = MLC1 , MLC Output = 0x08, FSM_IMPACT=0, FSM_FF=0
+
+
+--------------- NB-IoT HTTP application init ---------------
+Waiting for network registration...
+Humidity and Temperature sensor initialization OK!
+Barometer initialization OK!
+Accelerometer initialization OK!
+Ignoring event type 4 during HTTP baseline phase
+<--
+--> AT#NVMRD=5,12,1
+<-- #REBOOT_RESET
+<--
+<-- #SIMST: 1
+<--
+<-- #NVMRD: 42
+<--
+<-- OK
+<--
+<-- +CEREG: 2,"","",,,,"",""
+Ignoring event type 4 during HTTP baseline phase
+Ignoring event type 3 during HTTP baseline phase
+Ignoring event type 3 during HTTP baseline phase
+<--
+<-- +CEREG: 0,"","",,,,"",""
+<--
+<-- +CEREG: 2,"","",,,,"",""
+<--
+<-- +CSCON: 1
+<--
+<-- +CGEV: ME PDN ACT 5
+<--
+<-- #IPCFG: 5,0,1
+<--
+<-- +CEREG: 5,"42C7","0068BD70",9,,,"00000101",""
+Registration complete. Attached to NB-IoT network!
+
+--> AT+CCLK?
+<--
+<-- +CCLK: "26/07/11,11:18:35+08"
+Current time: "26/07/11,11:18:35+08"
+
+
+Resuming Sensor Task...
+Temperature [C]: 33.56
+Humidity [%RH]: 41.06
+Pressure [hPa]: 995.52
+Accelerometer [mg]: x=-7.81     y=-3.90 z=255.71
+
+Event Buffer Contents:
+Index 0: Event Type = FIRST, MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+
+Popped event type 0 from buffer index 0
+<--
+
+HTTP JSON:
+{"deviceId":"DEV001","timestamp":"2026-07-11T11:18:35Z","temperature":33.56,"humidity":41.06,"pressure":995.52,"battery":100,"orientation":"DEFAULT_STATIONARY_UPRIGHT"}
+
+HTTP REQUEST:
+POST /api/v1/telemetry HTTP/1.1
+Host: 10.68.87.69
+User-Agent: ST87EC/1.0
+Accept: */*
+Content-Type: application/json
+Content-Length: 168
+Connection: close
+
+{"deviceId":"DEV001","timestamp":"2026-07-11T11:18:35Z","temperature":33.56,"humidity":41.06,"pressure":995.52,"battery":100,"orientation":"DEFAULT_STATIONARY_UPRIGHT"}
+<-- OK
+
+Opening HTTP connection...
+--> AT#HTTPSTART?
+<--
+<-- #HTTPSTART: 0
+<--
+--> AT#SOCKETCREATE?
+<-- OK
+<--
+<-- #SOCKETCREATE:
+<--
+--> AT#DNS=5,0,10.68.87.69
+<-- OK
+<--
+<-- #DNS: 10.68.87.69,0
+<--
+--> AT#SOCKETCREATE=5,0,TCP,,60,60,1
+<-- OK
+<--
+<-- #SOCKETCREATE: 0
+<--
+--> AT#TCPCONNECT?
+<-- OK
+<-- #TCPCONNECT:5,0,3
+<--
+--> AT#TCPCONNECT=5,0,10.68.87.69,8080
+<-- OK
+<--
+<-- +CSCON: 0
+<--
+<-- +CSCON: 1
+<--
+--> AT#HTTPSTART
+<-- OK
+<--
+
+HTTP connection opened successfully.
+<-- OK
+
+Sending HTTP POST request...
+
+--> AT#HTTPMETHOD=POST,10.68.87.69,/api/v1/telemetry,0
+<--
+--> AT#HTTPHEADER=Host,10.68.87.69
+<-- OK
+<--
+--> AT#HTTPHEADER=User-Agent,ST87EC/1.0
+<-- OK
+<--
+--> AT#HTTPHEADER=Accept,*/*
+<-- OK
+<--
+--> AT#HTTPHEADER=Content-Type,application/json
+<-- OK
+<--
+--> AT#HTTPHEADER=Content-Length,168
+<-- OK
+<--
+--> AT#HTTPHEADER=Connection,close
+<-- OK
+<--
+--> AT#HTTPSEND=5,0,{"deviceId":"DEV001","timestamp":"2026-07-11T11:18:35Z","temperature":33.56,"humidity":41.06,"pressure":995.52,"battery":100,"orientation":"DEFAULT_STATIONARY_UPRIGHT"}
+<-- OK
+<--
+<-- OK
+<--
+<-- #HTTPRECV: 0,166,200,299
+<--
+<-- #HTTPRECV: 1,299
+--> AT#HTTPREAD
+<--
+<-- #HTTPREAD: 166
+<-- HTTP/1.1 200 OK
+<-- Server: Werkzeug/3.1.3 Python/3.13.5
+<-- Date: Sat, 11 Jul 2026 11:18:53 GMT
+<-- Content-Type: application/json
+<-- Content-Length: 299
+<-- Connection: close
+<--
+<--
+<--
+--> AT#HTTPREAD
+<-- OK
+<--
+<-- #HTTPREAD: 299
+<-- {
+<--   "message": "JSON ricevuto correttamente",
+<--   "received": {
+<--     "battery": 100,
+<--     "deviceId": "DEV001",
+<--     "humidity": 41.06,
+<--     "orientation": "DEFAULT_STATIONARY_UPRIGHT",
+<--     "pressure": 995.52,
+<--     "temperature": 33.56,
+<--     "timestamp": "2026-07-11T11:18:35Z"
+<--   },
+<--   "status": "success"
+<-- }
+<--
+
+*** Received HTTP data.
+*** Payload: HTTP/1.1 200 OK
+Server: Werkzeug/3.1.3 Python/3.13.5
+Date: Sat, 11 Jul 2026 11:18:53 GMT
+Content-Type: application/json
+Content-Length: 299
+Connection: close
+
+{
+  "message": "JSON ricevuto correttamente",
+  "received": {
+    "battery": 100,
+    "deviceId": "DEV001",
+    "humidity": 41.06,
+    "orientation": "DEFAULT_STATIONARY_UPRIGHT",
+    "pressure": 995.52,
+    "temperature": 33.56,
+    "timestamp": "2026-07-11T11:18:35Z"
+  },
+  "status": "success"
+}
+
+<--
+
+HTTP response received.
+<-- OK
+
+Closing HTTP connection...
+--> AT#HTTPSTOP
+<--
+--> AT#SOCKETCLOSE=5,0
+<-- OK
+<--
+
+HTTP TEST request sequence completed.

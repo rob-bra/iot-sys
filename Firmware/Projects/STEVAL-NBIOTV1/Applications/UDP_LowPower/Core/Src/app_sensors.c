@@ -194,6 +194,20 @@ void SensorsDataTask(void *pvParameters)
   {
     xQueueReceive(xDataQueue, &event, portMAX_DELAY);
 
+    /********************************************************************************
+     * PULIZIA BUFFER INIZIALE
+     *
+     * Per evitare di processare eventi diversi da eEventFirst ed eEventTimer
+     * durante la fase di baseline HTTP, ignoro gli altri eventi
+     * */
+    //
+    if((event != eEventFirst) && (event != eEventTimer))
+    {
+      printf("Ignoring event type %d during HTTP baseline phase\r\n", event);
+      continue;
+    }
+    //********************************************************************************
+
     // initialize data struct with default values
     data.event_type = event;
     data.mlc_output = 0;
@@ -735,6 +749,20 @@ uint16_t EventBuffer_Count(void)
     return (uint16_t) (EVENT_BUFFER_SIZE - s_eventRear + s_eventFront);
   }
 }
+
+
+/**
+ * @brief Clears the event buffer by resetting the front and rear indices and zeroing out the buffer.
+ *
+ * This function is used to reset the event buffer to an empty state, allowing for new events to be added without interference from previous data.
+ */
+void EventBuffer_Clear(void)
+{
+  s_eventFront = 0;
+  s_eventRear = 0;
+  memset(s_eventBuffer, 0, sizeof(s_eventBuffer));
+}
+
 
 /* USER CODE END Application */
 

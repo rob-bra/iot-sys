@@ -70,7 +70,7 @@ typedef enum HTTP_API_State
 /* Select the application sleep time */
 //#define APPLICATION_SLEEP_TIME_S        50U     //----------------------------------------- MODIFICATO GIU' PER TIMING DI INVIO MEX UDP
 // --- HTTP parameters ---
-#define HTTP_SERVER_IP                   "10.68.87.69"
+#define HTTP_SERVER_IP                   "10.68.87.69"  // VPN raspberry IP
 #define HTTP_SERVER_PORT                 8080
 #define TELEMETRY_PATH                  "/api/v1/telemetry"
 //#define TELEMETRY_PATH                  "/post"
@@ -190,7 +190,6 @@ static void BuildIsoTimestamp(char *out, size_t out_size);
 static const char* GetOrientationString(const SensorsData *data);
 static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_size);
 static bool BuildFixedTelemetryJson(char *json, size_t json_size);
-static bool BuildHttpPostRequest(const char *json, char *request, size_t request_size);
 
 /**
  * @brief Initializes the application.
@@ -297,6 +296,11 @@ static void HTTPTask(void *pvParameters)
       ST87EC_Lib_Reset();
       http_state = HttpApiState_Init;
       g_hasPendingTelemetry = false;  // reset pending telemetry flag after modem reset
+
+      //** clear the event buffer to avoid sending stale data after modem reset ******
+      void EventBuffer_Clear(void);
+      //******************************************************************************
+
       printf("\r\nModem reset complete...\r\n");
     }
 
@@ -593,19 +597,19 @@ static const char* GetOrientationString(const SensorsData *data)
     switch(data->mlc_output)
     {
       case 0x00:
-        return "STATIONARY_UPRIGHT";
+        return "stationary_upright";
       case 0x04:
-        return "STATIONARY_NOT_UPRIGHT";
+        return "stationary_not_upright";
       case 0x08:
-        return "IN_MOTION";
+        return "in_motion";
       case 0x0C:
-        return "SHAKEN";
+        return "shaken";
       default:
-        return "UNKNOWN";
+        return "unknown";
     }
   }
 
-  return "DEFAULT_STATIONARY_UPRIGHT"; // Default orientation if event type is not eEventMLC1
+  return "shaken"; // Default orientation if event type is not eEventMLC1
 }
 
 /**
@@ -628,13 +632,13 @@ static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_
   uint32_t battery = 100U;   // placeholder iniziale
 
   int written = snprintf(json, json_size, "{"
-                         "\"deviceId\":\"%s\","
-                         "\"timestamp\":\"%s\","
-                         "\"temperature\":%.2f,"
-                         "\"humidity\":%.2f,"
-                         "\"pressure\":%.2f,"
-                         "\"battery\":%u,"
-                         "\"orientation\":\"%s\""
+                         "\"deviceId\": \"%s\","
+                         "\"timestamp\": \"%s\","
+                         "\"temperature\": %.2f,"
+                         "\"humidity\": %.2f,"
+                         "\"pressure\": %.2f,"
+                         "\"battery\": %u,"
+                         "\"orientation\": \"%s\""
                          "}",
                          "DEV001", timestamp, data->sensor_hum_and_temp.temp, data->sensor_hum_and_temp.hum, data->sensor_barometer.pres,
                          (unsigned int) battery, orientation);
@@ -662,13 +666,13 @@ static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_
 static bool BuildFixedTelemetryJson(char *json, size_t json_size)
 {
   int written = snprintf(json, json_size, "{"
-                         "\"deviceId\":\"DEV001\","
-                         "\"timestamp\":\"2026-07-10T12:40:30Z\","
-                         "\"temperature\":30.60,"
-                         "\"humidity\":37.85,"
-                         "\"pressure\":992.06,"
-                         "\"battery\":100,"
-                         "\"orientation\":\"STATIONARY_UPRIGHT\""
+                         "\"deviceId\": \"DEV001\","
+                         "\"timestamp\": \"2026-07-10T12:40:30Z\","
+                         "\"temperature\" :30.60,"
+                         "\"humidity\" :37.85,"
+                         "\"pressure\" :992.06,"
+                         "\"battery\" :100,"
+                         "\"orientation\" :\"shaken\""
                          "}");
 
   return (written >= 0) && ((size_t) written < json_size);
@@ -702,17 +706,18 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
 //                         (unsigned int) HTTP_SERVER_PORT, (unsigned int) content_length, json);
 
   int written = snprintf(request, request_size, "POST %s HTTP/1.1\r\n"
-                         "Host: %s\r\n"
-                         "User-Agent: ST87EC/1.0\r\n"
-                         "Accept: */*\r\n"
+//                         "Host: %s\r\n"
+//                         "User-Agent: ST87EC/1.0\r\n"
+//                         "Accept: */*\r\n"
                          "Content-Type: application/json\r\n"
-                         "Content-Length: %u\r\n"
-                         "Connection: close\r\n"
+//                         "Content-Length: %u\r\n"
+//                         "Connection: close\r\n"
                          "\r\n"
                          "%s",
                          TELEMETRY_PATH,
-                         HTTP_SERVER_IP,
-                         (unsigned int) content_length, json);
+//                         HTTP_SERVER_IP,
+//                         (unsigned int) content_length,
+                         json);
 
   if((written < 0) || ((size_t) written >= request_size))
   {
@@ -896,6 +901,27 @@ static void GetTimeCallback(char const *const pString)
   memcpy(tmp_str, pString + 1, strlen(tmp_str));
 
   strptime(tmp_str, "%y/%m/%d,%H:%M:%S", &result);
+
+  // Check if the parsed time is valid **************************************
+  bool valid_time = true;
+
+  if((result.tm_year < 124) ||   // 2024 = 124 in tm_year
+     (result.tm_mon < 0) ||
+     (result.tm_mon > 11) ||
+     (result.tm_mday < 1) ||
+     (result.tm_mday > 31))
+  {
+    valid_time = false;
+  }
+
+  if(!valid_time)
+  {
+    printf("Invalid modem time received, waiting before retry...\r\n");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    http_state = HttpApiState_Init;
+    return;
+  }
+  // *************************************************************************
 
   RTC_TimeTypeDef time =
   {
