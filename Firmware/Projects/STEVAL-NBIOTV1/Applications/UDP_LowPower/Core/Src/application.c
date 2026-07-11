@@ -55,6 +55,7 @@ typedef enum HTTP_API_State
   HttpApiState_SendRequest,
   HttpApiState_WaitResponse,
   HttpApiState_CloseConnection,
+  HttpApiState_ArmPeriodicTimer,
 //  HttpApiState_GoToSleep,
 } HTTP_API_State;
 
@@ -383,6 +384,9 @@ static void HTTPTask(void *pvParameters)
             memset(g_http_json, 0, sizeof(g_http_json));
             memset(g_http_request, 0, sizeof(g_http_request));
 
+            // print del tipo di evento (pending) che sto per inviare
+            printf("\r\nPreparing telemetry for event type %d...\r\n", g_pendingTelemetry.event_type);
+
             if(!BuildTelemetryJson(&g_pendingTelemetry, g_http_json, sizeof(g_http_json)))
             {
               // If building the telemetry JSON fails, reset the pending telemetry flag and go back to idle state
@@ -484,22 +488,32 @@ static void HTTPTask(void *pvParameters)
             {
               // Reset the pending telemetry flag after closing the connection
               g_hasPendingTelemetry = false;
-              http_state = HttpApiState_Done;
+              http_state = HttpApiState_ArmPeriodicTimer;
             }
             break;
           }
-        case HttpApiState_Done:
+        case HttpApiState_ArmPeriodicTimer:
           {
-            static bool printed = false;
-            if(!printed)
-            {
-              printf("\r\nHTTP TEST request sequence completed.\r\n");
-              printed = true;
-            }
+            printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int)APPLICATION_SLEEP_TIME_S);
 
-            vTaskSuspend(NULL);
+            HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);  // stop any previous timer
+            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD); // start the timer for the next sleep period
+
+            http_state = HttpApiState_Idle;
             break;
           }
+//        case HttpApiState_Done:
+//          {
+//            static bool printed = false;
+//            if(!printed)
+//            {
+//              printf("\r\nHTTP TEST request sequence completed.\r\n");
+//              printed = true;
+//            }
+//
+//            vTaskSuspend(NULL);
+//            break;
+//          }
 //        case HttpApiState_GoToSleep:
 //          {
 //            printf("\r\nApplication is ready to go to sleep for %ds...\r\n", APPLICATION_SLEEP_TIME_S);
@@ -902,7 +916,7 @@ static void GetTimeCallback(char const *const pString)
 
   strptime(tmp_str, "%y/%m/%d,%H:%M:%S", &result);
 
-  // Check if the parsed time is valid **************************************
+  // ** Check if the parsed time is valid **************************************
   bool valid_time = true;
 
   if((result.tm_year < 124) ||   // 2024 = 124 in tm_year
