@@ -57,8 +57,20 @@ typedef enum HTTP_API_State
   HttpApiState_CloseConnection,
   HttpApiState_ArmPeriodicTimer,
 //  HttpApiState_GoToSleep,
+  //pending commands
+  HttpApiState_OpenPendingCommandsConnection,
+  HttpApiState_WaitPendingCommandsOpen,
+  HttpApiState_SendPendingCommandsRequest,
+  HttpApiState_WaitPendingCommandsResponse,
+  HttpApiState_ClosePendingCommandsConnection,
 } HTTP_API_State;
 
+// variabile per gestire il flusso di dati HTTP
+typedef enum
+{
+  HttpFlow_Telemetry = 0,
+  HttpFlow_PendingCommands
+} HttpFlow_t;
 /* Private define ------------------------------------------------------------*/
 
 /* ----------------------------------------*/
@@ -163,15 +175,26 @@ extern bool send_immediately;  // flag to indicate whether to send the UDP packe
 
 /* State machine variable */
 volatile HTTP_API_State http_state = HttpApiState_Init;
+static volatile HttpFlow_t g_httpFlow = HttpFlow_Telemetry;
+
+/* Sampling period in seconds chosen by the user throgh web dashboard command */
+static uint32_t g_sampling_period_s = 20U;
 
 // --- HTTP variables ---
 static volatile bool http_response_received = false;
+static char g_lastHttpResponse[768];
 
+/* Buffers for HTTP JSON and request data */
+static char g_http_json[HTTP_JSON_BUFFER_SIZE];
+static char g_http_request[HTTP_REQUEST_BUFFER_SIZE];
+
+/* Variable to hold the telemetry data that is pending to be sent via HTTP */
 static SensorsData g_pendingTelemetry;  // struct to hold the telemetry data that is pending to be sent via HTTP
 static bool g_hasPendingTelemetry = false;  // flag to indicate if there is pending telemetry data to be sent via HTTP
 
-static char g_http_json[HTTP_JSON_BUFFER_SIZE];
-static char g_http_request[HTTP_REQUEST_BUFFER_SIZE];
+/* Buffers for HTTP command request and response */
+static char g_http_cmd_request[HTTP_REQUEST_BUFFER_SIZE];
+static char g_http_cmd_response[HTTP_REQUEST_BUFFER_SIZE];
 
 static ST87EC_Lib_HttpTransferObject_t httpTxObj;
 
@@ -191,6 +214,9 @@ static void BuildIsoTimestamp(char *out, size_t out_size);
 static const char* GetOrientationString(const SensorsData *data);
 static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_size);
 static bool BuildFixedTelemetryJson(char *json, size_t json_size);
+static bool BuildPendingCommandsGetRequest(char *request, size_t request_size);
+static uint32_t GetLptimPeriodFromSeconds(uint32_t seconds);
+
 
 /**
  * @brief Initializes the application.
@@ -266,8 +292,6 @@ static void HTTPTask(void *pvParameters)
   ST87EC_Lib_Result_t result;
   ST87EC_Lib_Status_t eclib_state;
 
-  bool test_mode = false;  // set to true to test the HTTP request with a fixed payload, without waiting for sensor data
-
   printf("\r\n\r\n--------------- NB-IoT HTTP application init ---------------\r\n");
   printf("Waiting for network registration...\r\n");
 
@@ -328,19 +352,13 @@ static void HTTPTask(void *pvParameters)
           }
         case HttpApiState_Idle:
           {
-            if(test_mode)
-            {
-              http_state = HttpApiState_PrepareFixedRequest;  // In test mode, go to PrepareFixedRequest state
-              break;
-            }
-
             SensorsData ev;
 
             // Check if there are pending telemetry events in the queue
             if(!g_hasPendingTelemetry && EventBuffer_Pop(&ev))
             {
-              g_pendingTelemetry = ev;
-              g_hasPendingTelemetry = true;
+              g_pendingTelemetry = ev;  // sensorsData struct to hold the telemetry data that is pending to be sent via HTTP
+              g_hasPendingTelemetry = true; // sbloacca tutto appena ho un evento in coda da inviare
               http_state = HttpApiState_PrepareTelemetry;
             }
             break;
@@ -480,25 +498,121 @@ static void HTTPTask(void *pvParameters)
               printf("\r\nFailed to close HTTP connection: %d\r\n", result);
             }
 
-            if(test_mode)
-            {
-              http_state = HttpApiState_Done;  // In test mode, go to Done state after closing the connection
-            }
-            else
+            if(g_httpFlow == HttpFlow_Telemetry)
             {
               // Reset the pending telemetry flag after closing the connection
               g_hasPendingTelemetry = false;
+              http_state = HttpApiState_OpenPendingCommandsConnection;
+            }
+            else
+            {
+              /* NON serve resettare il flag g_hasPendingTelemetry qui perché il reset
+               * avviene SOLO DOPO l'invio della telemetria, e non dopo l'invio dei comandi pendenti,
+               * quindi è già stato fatto, dal momento che il flusso è:
+               *
+               * idle -> pop evento -> h_hasPendingTelemetry = true -> prepare telemetry ->
+               * -> invio POST telemetria -> chiusura connessione -> h_hasPendingTelemetry = false (ECCO) ->
+               * -> polling pending commands -> close connection (SIAMO QUA) -> arm periodic timer -> idle
+               * */
               http_state = HttpApiState_ArmPeriodicTimer;
+            }
+            break;
+          }
+        case HttpApiState_OpenPendingCommandsConnection:
+          {
+            // preparo la variabile per la richiesta GET dei comandi pendenti
+            memset(g_http_cmd_request, 0, sizeof(g_http_cmd_request));
+
+            if(!BuildPendingCommandsGetRequest(g_http_cmd_request, sizeof(g_http_cmd_request)))
+            {
+              printf("\r\nFailed to build pending commands GET request.\r\n");
+              http_state = HttpApiState_ArmPeriodicTimer;
+              break;
+            }
+
+            printf("\r\nPending commands HTTP REQUEST:\r\n%s\r\n", g_http_cmd_request);
+
+            httpTxObj.pHttpRawInStr = g_http_cmd_request;
+
+            /* di solito non serve resettare il flag http_response_received perché lo si fa già
+             * nello stato HttpApiState_PrepareTelemetry, MA dato che ora vado a gestire lo stesso
+             * oggetto httpTxObj per inviare la richiesta GET dei comandi pendenti, bisogna resettare il flag
+             */
+            http_response_received = false;
+            g_httpFlow = HttpFlow_PendingCommands;
+
+            printf("\r\nOpening HTTP connection for pending commands (GET request)...\r\n");
+            result = ST87EC_Lib_NBIOT_HttpOpen(HTTP_SERVER_IP, HTTP_SERVER_PORT, HTTP_SECURE_ID, HTTP_TIMEOUT_MS);
+
+            if(result == RESULT_OK)
+            {
+              http_state = HttpApiState_WaitPendingCommandsOpen;
+            }
+            else
+            {
+              printf("\r\nFailed to open HTTP connection for pending commands: %d\r\n", result);
+              http_state = HttpApiState_ArmPeriodicTimer;
+            }
+            break;
+          }
+        case HttpApiState_WaitPendingCommandsOpen:
+          {
+            if(eclib_state.HttpConnectionStatus == HTTP_CONNECTED)
+            {
+              printf("\r\nHTTP connection for pending commands opened successfully.\r\n");
+              vTaskDelay(pdMS_TO_TICKS(200));
+              http_state = HttpApiState_SendPendingCommandsRequest;
+            }
+            break;
+          }
+        case HttpApiState_SendPendingCommandsRequest:
+          {
+            printf("\r\nSending HTTP GET request for pending commands...\r\n\n");
+            result = ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj);
+
+            if(result == RESULT_OK)
+            {
+              http_state = HttpApiState_WaitPendingCommandsResponse;
+            }
+            else
+            {
+              printf("\r\nFailed to send HTTP GET request for pending commands: %d\r\n", result);
+              http_state = HttpApiState_CloseConnection;
+            }
+            break;
+          }
+        case HttpApiState_WaitPendingCommandsResponse:
+          {
+            /*
+             * OSS.: è QUI che si capisce perchè era necessario andare a resettare http_response_received
+             * nello stato HttpApiState_OpenPendingCommandsConnection
+             *
+             * Attende la ricezione della risposta HTTP tramite la callback HTTPReceiveCallback.*/
+            if(http_response_received)
+            {
+              printf("\r\nHTTP response for pending commands received.\r\n");
+              printf("\r\nPending commands raw payload:\r\n%s\r\n", g_lastHttpResponse);
+
+              http_state = HttpApiState_CloseConnection;
             }
             break;
           }
         case HttpApiState_ArmPeriodicTimer:
           {
-            printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int)APPLICATION_SLEEP_TIME_S);
-
             HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);  // stop any previous timer
-            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD); // start the timer for the next sleep period
 
+            /* --- OLD FIXED TIMER -APPLICATION_SLEEP_TIME_S --- */
+//            printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int) APPLICATION_SLEEP_TIME_S);
+//            /* Start the LPTIM timer for the next FIXED sleep period */
+//            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
+
+            /* --- NEW USER-DEFINED TIMER - g_sampling_period_s --- */
+            printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int) g_sampling_period_s);
+            /* Start the LPTIM timer for the next sleep period CHOSEN by the user through web dashboard */
+            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, GetLptimPeriodFromSeconds(g_sampling_period_s));
+
+            /* switch back to telemetry flow for the next cycle */
+            g_httpFlow = HttpFlow_Telemetry;
             http_state = HttpApiState_Idle;
             break;
           }
@@ -555,9 +669,15 @@ static void HTTPTask(void *pvParameters)
  * */
 static void HTTPReceiveCallback(char const *const receivedData)
 {
+  /* Clear the global response buffer before copying new data */
+  memset(g_lastHttpResponse, 0, sizeof(g_lastHttpResponse));
+
   if(receivedData != NULL)
   {
-    http_response_received = true;
+    /* Copy the received data into the global response buffer.
+     * OSS.: Servirebbe solo per gli stati Pending
+     * */
+    snprintf(g_lastHttpResponse, sizeof(g_lastHttpResponse), "%s", receivedData);
 
     /* Process the received data */
     printf(APP_LOG_PREFIX"Received HTTP data.");
@@ -566,8 +686,12 @@ static void HTTPReceiveCallback(char const *const receivedData)
   else
   {
     printf(APP_LOG_PREFIX"#HTTPRECV: No data received.\r\n");
-    http_response_received = true;
+
+    /* Clear the global response buffer if no data was received */
+//    g_lastHttpResponse[0] = '\0';
   }
+
+  http_response_received = true;
 
   // per adesso la gestione della chiusura della connessione la faccio nello stato HttpApiState_WaitResponse
 //  http_state = HttpApiState_CloseConnection;
@@ -723,15 +847,15 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
 //                         "Host: %s\r\n"
 //                         "User-Agent: ST87EC/1.0\r\n"
 //                         "Accept: */*\r\n"
-                         "Content-Type: application/json\r\n"
+      "Content-Type: application/json\r\n"
 //                         "Content-Length: %u\r\n"
 //                         "Connection: close\r\n"
-                         "\r\n"
-                         "%s",
-                         TELEMETRY_PATH,
+      "\r\n"
+      "%s",
+      TELEMETRY_PATH,
 //                         HTTP_SERVER_IP,
 //                         (unsigned int) content_length,
-                         json);
+      json);
 
   if((written < 0) || ((size_t) written >= request_size))
   {
@@ -740,6 +864,56 @@ static bool BuildHttpPostRequest(const char *json, char *request, size_t request
   }
 
   return true;
+}
+
+/**
+ * @brief Builds an HTTP GET request string for retrieving pending commands.
+ *
+ * This function formats the HTTP GET request to retrieve pending commands for a specific device.
+ * The request is stored in the provided request buffer.
+ *
+ * @param request Pointer to the output buffer where the HTTP GET request string will be stored.
+ * @param request_size Size of the output buffer in bytes.
+ * @return true if the HTTP GET request string was successfully built and fits within the provided buffer; false if the buffer is too small.
+ */
+static bool BuildPendingCommandsGetRequest(char *request, size_t request_size)
+{
+  const char *deviceId = "DEV001";  // placeholder for the device ID, to be replaced with the actual device ID if needed
+
+  int written = snprintf(request, request_size,
+                         "GET /api/v1/devices/%s/commands/pending HTTP/1.1\r\n"
+                          "Content-Type: application/json\r\n"
+                          "\r\n",
+                          deviceId);
+
+  if((written < 0) || ((size_t) written >= request_size))
+  {
+    printf("BuildPendingCommandsGetRequest failed: buffer too small\r\n");
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief Converts a duration in seconds to the corresponding LPTIM period value.
+ *
+ * This function calculates the LPTIM period value based on the provided duration in seconds.
+ * The calculated period is limited to a maximum value of 65535 to ensure it fits within the LPTIM register.
+ *
+ * @param seconds The duration in seconds for which to calculate the LPTIM period.
+ * @return The calculated LPTIM period value, limited to a maximum of 65535.
+ */
+static uint32_t GetLptimPeriodFromSeconds(uint32_t seconds)
+{
+  uint32_t period = (seconds * 1000000U) / LPTIM_TICK_TIME_US;
+
+  if(period > 65535U)
+  {
+    period = 65535U;
+  }
+
+  return period;
 }
 
 /**
@@ -920,10 +1094,7 @@ static void GetTimeCallback(char const *const pString)
   bool valid_time = true;
 
   if((result.tm_year < 124) ||   // 2024 = 124 in tm_year
-     (result.tm_mon < 0) ||
-     (result.tm_mon > 11) ||
-     (result.tm_mday < 1) ||
-     (result.tm_mday > 31))
+      (result.tm_mon < 0) || (result.tm_mon > 11) || (result.tm_mday < 1) || (result.tm_mday > 31))
   {
     valid_time = false;
   }
@@ -1019,5 +1190,4 @@ static void LedBlinking(ST87EC_Lib_Status_t *eclib_state)
     }
   }
 }
-
 

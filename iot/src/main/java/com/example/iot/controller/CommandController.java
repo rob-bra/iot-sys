@@ -59,10 +59,16 @@ public class CommandController {
 	}
 
 	/**
-	 * Restituisce i comandi ancora pendenti per il dispositivo specificato.
+	 * Restituisce i comandi ancora pendenti per il dispositivo specificato sotto
+	 * forma di DTO dedicati alla risposta REST.
+	 * <p>
+	 * Questo endpoint è pensato principalmente per il polling eseguito dal firmware
+	 * del dispositivo embedded, che interroga periodicamente il backend per
+	 * recuperare eventuali comandi remoti ancora da eseguire.
+	 * </p>
 	 *
 	 * @param deviceId l'identificativo del dispositivo
-	 * @return la lista dei comandi con stato PENDING
+	 * @return la lista dei comandi con stato {@code PENDING} destinati al dispositivo
 	 */
 	@GetMapping("/devices/{deviceId}/commands/pending")
 	public List<PendingCommandResponse> getPendingCommandsByDeviceId(@PathVariable String deviceId) {
