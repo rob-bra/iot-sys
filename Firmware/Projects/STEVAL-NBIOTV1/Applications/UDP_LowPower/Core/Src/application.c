@@ -57,7 +57,8 @@ typedef enum HTTP_API_State
   HttpApiState_CloseConnection,
   HttpApiState_ArmPeriodicTimer,
 //  HttpApiState_GoToSleep,
-  //pending commands
+
+  /* ---pending states --- */
   HttpApiState_OpenPendingCommandsConnection,
   HttpApiState_WaitPendingCommandsOpen,
   HttpApiState_SendPendingCommandsRequest,
@@ -65,12 +66,22 @@ typedef enum HTTP_API_State
   HttpApiState_ClosePendingCommandsConnection,
 } HTTP_API_State;
 
-// variabile per gestire il flusso di dati HTTP
+/* variabile per gestire il flusso di dati HTTP */
 typedef enum
 {
   HttpFlow_Telemetry = 0,
   HttpFlow_PendingCommands
 } HttpFlow_t;
+
+/* Structure to hold pending commands received from the server */
+typedef struct
+{
+  uint32_t id;
+  char type[32];
+  char payload[64];
+  bool valid;
+} PendingCommand_t;
+
 /* Private define ------------------------------------------------------------*/
 
 /* ----------------------------------------*/
@@ -192,6 +203,9 @@ static char g_http_request[HTTP_REQUEST_BUFFER_SIZE];
 static SensorsData g_pendingTelemetry;  // struct to hold the telemetry data that is pending to be sent via HTTP
 static bool g_hasPendingTelemetry = false;  // flag to indicate if there is pending telemetry data to be sent via HTTP
 
+/* Variable to hold/store the pending command received from the server */
+static PendingCommand_t g_pendingCommand;
+
 /* Buffers for HTTP command request and response */
 static char g_http_cmd_request[HTTP_REQUEST_BUFFER_SIZE];
 static char g_http_cmd_response[HTTP_REQUEST_BUFFER_SIZE];
@@ -207,16 +221,23 @@ static void LedBlinking(ST87EC_Lib_Status_t *eclib_state);
 
 static void HTTPReceiveCallback(char const *const receivedData);
 static void GetTimeCallback(char const *const pString);
-static uint32_t GetCurrentTimeSeconds(void);
 
+static const char* GetOrientationString(const SensorsData *data);
+
+/* Helper functions for building HTTP requests and JSON payloads */
 static bool BuildHttpPostRequest(const char *json, char *request, size_t request_size);
 static void BuildIsoTimestamp(char *out, size_t out_size);
-static const char* GetOrientationString(const SensorsData *data);
 static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_size);
 static bool BuildFixedTelemetryJson(char *json, size_t json_size);
 static bool BuildPendingCommandsGetRequest(char *request, size_t request_size);
-static uint32_t GetLptimPeriodFromSeconds(uint32_t seconds);
 
+/* Helper functions for time & parsing JSON and extracting values */
+static uint32_t GetCurrentTimeSeconds(void);
+static uint32_t GetLptimPeriodFromSeconds(uint32_t seconds);
+static const char* SkipSpaces(const char *p);
+static bool ExtractJsonUint32(const char *json, const char *key, uint32_t *value);
+static bool ExtractJsonString(const char *json, const char *key, char *out, size_t out_size);
+static bool ParsePendingCommand(const char *httpPayload, PendingCommand_t *cmd);
 
 /**
  * @brief Initializes the application.
@@ -594,6 +615,19 @@ static void HTTPTask(void *pvParameters)
               printf("\r\nHTTP response for pending commands received.\r\n");
               printf("\r\nPending commands raw payload:\r\n%s\r\n", g_lastHttpResponse);
 
+              /* Parse the pending command from the HTTP response payload */
+              if(ParsePendingCommand(g_lastHttpResponse, &g_pendingCommand))
+                  {
+                    printf("\r\nPending command parsed successfully!\r\n");
+                    printf("Command ID   : %lu\r\n", (unsigned long)g_pendingCommand.id);
+                    printf("Command TYPE : %s\r\n", g_pendingCommand.type);
+                    printf("Command DATA : %s\r\n", g_pendingCommand.payload);
+                  }
+                  else
+                  {
+                    printf("\r\nNo valid pending command found.\r\n");
+                  }
+
               http_state = HttpApiState_CloseConnection;
             }
             break;
@@ -611,6 +645,9 @@ static void HTTPTask(void *pvParameters)
             printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int) g_sampling_period_s);
             /* Start the LPTIM timer for the next sleep period CHOSEN by the user through web dashboard */
             HAL_LPTIM_TimeOut_Start_IT(&hlptim1, GetLptimPeriodFromSeconds(g_sampling_period_s));
+
+            /* Reset the pending command structure after processing it */
+            memset(&g_pendingCommand, 0, sizeof(g_pendingCommand));
 
             /* switch back to telemetry flow for the next cycle */
             g_httpFlow = HttpFlow_Telemetry;
@@ -920,6 +957,180 @@ static uint32_t GetLptimPeriodFromSeconds(uint32_t seconds)
   }
 
   return period;
+}
+
+/**
+ * @brief Skips whitespace characters in a string.
+ *
+ * This function takes a pointer to a string and advances the pointer past any leading
+ * whitespace characters (spaces, tabs, carriage returns, or newlines). It returns a pointer
+ * to the first non-whitespace character in the string, or NULL if the input pointer is NULL.
+ *
+ * @param p Pointer to the input string.
+ * @return Pointer to the first non-whitespace character in the string, or NULL if the input is NULL.
+ */
+static const char* SkipSpaces(const char *p)
+{
+  while((p != NULL) && ((*p == ' ') || (*p == '\t') || (*p == '\r') || (*p == '\n')))
+  {
+    p++;
+  }
+  return p;
+}
+
+/**
+ * @brief Extracts a uint32_t value from a JSON string based on a specified key.
+ *
+ * This function searches for a specified key in a JSON string and extracts the corresponding
+ * uint32_t value. It assumes that the value is represented as an unsigned integer in the JSON.
+ *
+ * @param json Pointer to the input JSON string.
+ * @param key Pointer to the key whose value is to be extracted.
+ * @param value Pointer to the variable where the extracted uint32_t value will be stored.
+ * @return true if the key was found and the value was successfully extracted; false otherwise.
+ */
+static bool ExtractJsonUint32(const char *json, const char *key, uint32_t *value)
+{
+  char pattern[32];
+  snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+
+  const char *p = strstr(json, pattern);
+  if(p == NULL)
+  {
+    return false;
+  }
+
+  p += strlen(pattern);
+  p = SkipSpaces(p);
+
+  if((p == NULL) || (*p < '0') || (*p > '9'))
+  {
+    return false;
+  }
+
+  *value = (uint32_t)strtoul(p, NULL, 10);
+  return true;
+}
+
+/**
+ * @brief Extracts a string value from a JSON string based on a specified key.
+ *
+ * This function searches for a specified key in a JSON string and extracts the corresponding
+ * string value. It assumes that the value is enclosed in double quotes in the JSON.
+ *
+ * @param json Pointer to the input JSON string.
+ * @param key Pointer to the key whose value is to be extracted.
+ * @param out Pointer to the output buffer where the extracted string will be stored.
+ * @param out_size Size of the output buffer in bytes.
+ * @return true if the key was found and the string value was successfully extracted; false otherwise.
+ */
+static bool ExtractJsonString(const char *json, const char *key, char *out, size_t out_size)
+{
+  char pattern[32];
+  snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+
+  const char *p = strstr(json, pattern);
+  if(p == NULL)
+  {
+    return false;
+  }
+
+  p += strlen(pattern);
+  p = SkipSpaces(p);
+
+  if((p == NULL) || (*p != '\"'))
+  {
+    return false;
+  }
+
+  p++; // skip opening quote
+
+  const char *end = strchr(p, '\"');
+  if(end == NULL)
+  {
+    return false;
+  }
+
+  size_t len = (size_t)(end - p);
+  if(len >= out_size)
+  {
+    len = out_size - 1U;
+  }
+
+  memcpy(out, p, len);
+  out[len] = '\0';
+
+  return true;
+}
+
+/**
+ * @brief Parses a pending command from an HTTP payload.
+ *
+ * This function extracts the command ID, type, and payload from the provided HTTP payload,
+ * which is expected to be in JSON format. It populates the provided PendingCommand_t structure
+ * with the extracted values and sets the valid flag to true if the parsing is successful.
+ *
+ * @param httpPayload Pointer to the HTTP payload string containing the command data.
+ * @param cmd Pointer to the PendingCommand_t structure where the parsed command will be stored.
+ * @return true if the command was successfully parsed; false otherwise.
+ */
+static bool ParsePendingCommand(const char *httpPayload, PendingCommand_t *cmd)
+{
+  if((httpPayload == NULL) || (cmd == NULL))
+  {
+    return false;
+  }
+
+  memset(cmd, 0, sizeof(PendingCommand_t));
+  cmd->valid = false;
+
+  /* Cerca l'inizio del body JSON: la risposta contiene anche gli header HTTP */
+  const char *json = strstr(httpPayload, "\r\n\r\n");
+  if(json != NULL)
+  {
+    json += 4; // skip "\r\n\r\n"
+  }
+  else
+  {
+    json = httpPayload;
+  }
+
+  json = SkipSpaces(json);
+
+  if(json == NULL)
+  {
+    return false;
+  }
+
+  /* Nessun comando pendente */
+  if((strncmp(json, "[]", 2) == 0))
+  {
+    return false;
+  }
+
+  /* Per ora assumiamo al massimo il primo elemento dell'array */
+  if(strchr(json, '{') == NULL)
+  {
+    return false;
+  }
+
+  bool ok_id = ExtractJsonUint32(json, "id", &cmd->id);
+  bool ok_type = ExtractJsonString(json, "type", cmd->type, sizeof(cmd->type));
+
+  /* payload può anche essere stringa vuota */
+  bool ok_payload = ExtractJsonString(json, "payload", cmd->payload, sizeof(cmd->payload));
+  if(!ok_payload)
+  {
+    cmd->payload[0] = '\0';
+  }
+
+  if(ok_id && ok_type)
+  {
+    cmd->valid = true;
+    return true;
+  }
+
+  return false;
 }
 
 /**
