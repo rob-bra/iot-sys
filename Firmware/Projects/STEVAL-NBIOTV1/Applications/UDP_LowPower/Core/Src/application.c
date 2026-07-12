@@ -522,6 +522,7 @@ static void HTTPTask(void *pvParameters)
           {
             // preparo la variabile per la richiesta GET dei comandi pendenti
             memset(g_http_cmd_request, 0, sizeof(g_http_cmd_request));
+            memset(g_lastHttpResponse, 0, sizeof(g_lastHttpResponse));
 
             if(!BuildPendingCommandsGetRequest(g_http_cmd_request, sizeof(g_http_cmd_request)))
             {
@@ -880,11 +881,16 @@ static bool BuildPendingCommandsGetRequest(char *request, size_t request_size)
 {
   const char *deviceId = "DEV001";  // placeholder for the device ID, to be replaced with the actual device ID if needed
 
+  /* OSS.: il modem ST87 richiede un body non vuoto anche per le richieste GET,
+   * altrimenti la richiesta fallisce.
+   * Per questo motivo viene inviato un body minimo "{}" come workaround.
+   */
   int written = snprintf(request, request_size,
                          "GET /api/v1/devices/%s/commands/pending HTTP/1.1\r\n"
-                          "Content-Type: application/json\r\n"
-                          "\r\n",
-                          deviceId);
+                         "Content-Type: application/json\r\n"
+                         "\r\n{}"
+                         "\r\n",
+                         deviceId);
 
   if((written < 0) || ((size_t) written >= request_size))
   {
