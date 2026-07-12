@@ -204,7 +204,7 @@ void SensorsDataTask(void *pvParameters)
     if((event != eEventFirst) && (event != eEventTimer))
     {
       printf("Ignoring event type %d during HTTP baseline phase\r\n", event);
-      continue;
+      continue; // skippa il resto del ciclo e torna a ricevere il prossimo evento
     }
     //********************************************************************************
 
@@ -314,7 +314,7 @@ void SensorsDataTask(void *pvParameters)
     /* b) Pushing data into event buffer (circular array) */
     bool sameEvent = true;
 
-    // --- se voglio far sì che eEventTimer venga sempre pushato: --------------------------
+    // --- se voglio far sì che eEventTimer venga sempre pushato anche per stessi eventi: --------------------------
 //    if(event == eEventTimer)
 //    {
 //      sameEvent = false;    // forza il push per gli eventi timer
@@ -324,7 +324,7 @@ void SensorsDataTask(void *pvParameters)
 //      if(EventBuffer_IsEmpty() || last_event_data.event_type != data.event_type)
 //        ... aggiungo la roba sotto
 //    }
-    // -------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------------------------
 
     /* se:
      * 1) il buffer è vuoto (non ci sono eventi precedenti con cui confrontare) o se l'ultimo evento è di tipo diverso da quello corrente (es. ultimo evento MLC, nuovo evento FSM)

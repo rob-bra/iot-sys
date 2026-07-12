@@ -117,7 +117,7 @@ typedef enum HTTP_API_State
 
 /*-- event management --*/
 #define EVENT_BATCH_SIZE                5U          // size of the event batch to be sent in each UDP packet
-#define SENSORS_SAMPLE_INTERVAL_S       60U         // 1 minute
+#define SENSORS_SAMPLE_INTERVAL_S       20U         // 20 seconds
 #define UDP_SEND_INTERVAL_S             (2U * 60U)  // 5 min - send the batch every UDP_SEND_INTERVAL_S seconds
 // Ogni 60s il LPTIM genera il CompareMatch → HAL_LPTIM_CompareMatchCallback → queue eEventTimer.
 #define APPLICATION_SLEEP_TIME_S        SENSORS_SAMPLE_INTERVAL_S
