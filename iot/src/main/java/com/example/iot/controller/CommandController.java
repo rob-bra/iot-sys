@@ -2,6 +2,7 @@ package com.example.iot.controller;
 
 import com.example.iot.dto.CommandAckRequest;
 import com.example.iot.dto.CommandRequest;
+import com.example.iot.dto.PendingCommandResponse;
 import com.example.iot.service.CommandService;
 import org.springframework.web.bind.annotation.*;
 
@@ -64,8 +65,8 @@ public class CommandController {
 	 * @return la lista dei comandi con stato PENDING
 	 */
 	@GetMapping("/devices/{deviceId}/commands/pending")
-	public List<Map<String, Object>> getPendingCommandsByDeviceId(@PathVariable String deviceId) {
-		return commandService.getPendingCommandsByDeviceId(deviceId);
+	public List<PendingCommandResponse> getPendingCommandsByDeviceId(@PathVariable String deviceId) {
+		return commandService.getPendingCommandDtosByDeviceId(deviceId);
 	}
 
 	/**

@@ -2,6 +2,7 @@ package com.example.iot.service.impl;
 
 import com.example.iot.dto.CommandAckRequest;
 import com.example.iot.dto.CommandRequest;
+import com.example.iot.dto.PendingCommandResponse;
 import com.example.iot.repository.CommandRepository;
 import com.example.iot.service.CommandService;
 
@@ -76,5 +77,36 @@ public class CommandServiceImpl implements CommandService {
 	@Override
 	public void ackCommand(Long commandId, CommandAckRequest ackRequest) {
 		commandRepository.ackCommand(commandId, ackRequest);
+	}
+	
+	/**
+	 * Restituisce i comandi pendenti associati al dispositivo specificato,
+	 * convertendo i dati recuperati dal repository in DTO orientati all'API REST.
+	 * <p>
+	 * Il repository restituisce attualmente una lista di mappe contenenti i nomi
+	 * delle colonne del database. Questo metodo si occupa di trasformare tali
+	 * risultati in oggetti {@link com.example.iot.dto.PendingCommandResponse},
+	 * esponendo una struttura più pulita e indipendente dal layer di persistenza.
+	 * </p>
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la lista dei comandi pendenti del dispositivo in formato DTO
+	 */
+	@Override
+	public List<PendingCommandResponse> getPendingCommandDtosByDeviceId(String deviceId) {
+	    List<Map<String, Object>> rows = commandRepository.findPendingCommandsByDeviceId(deviceId);
+
+	    return rows.stream()
+	            .map(row -> new PendingCommandResponse(
+	                    row.get("id") != null ? ((Number) row.get("id")).longValue() : null,
+	                    (String) row.get("device_id"),
+	                    (String) row.get("type"),
+	                    (String) row.get("payload"),
+	                    (String) row.get("status"),
+	                    (String) row.get("created_at"),
+	                    (String) row.get("ack_at"),
+	                    (String) row.get("result_message")
+	            ))
+	            .toList();
 	}
 }

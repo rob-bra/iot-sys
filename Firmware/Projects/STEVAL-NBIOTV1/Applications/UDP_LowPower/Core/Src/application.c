@@ -1019,3 +1019,5 @@ static void LedBlinking(ST87EC_Lib_Status_t *eclib_state)
     }
   }
 }
+
+
