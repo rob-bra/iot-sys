@@ -66,6 +66,12 @@ typedef enum HTTP_API_State
   /* --- forced measurement state --- */
   HttpApiState_WaitForcedMeasurementTelemetry,
 
+  /* --- command ack states --- */
+  HttpApiState_OpenCommandAckConnection,
+  HttpApiState_WaitCommandAckOpen,
+  HttpApiState_SendCommandAckRequest,
+  HttpApiState_WaitCommandAckResponse,
+
   HttpApiState_ArmPeriodicTimer,
 //  HttpApiState_GoToSleep,
 } HTTP_API_State;
@@ -74,7 +80,8 @@ typedef enum HTTP_API_State
 typedef enum
 {
   HttpFlow_Telemetry = 0,
-  HttpFlow_PendingCommands
+  HttpFlow_PendingCommands,
+  HttpFlow_CommandAck,
 } HttpFlow_t;
 
 /* Structure to hold pending commands received from the server */
@@ -220,6 +227,13 @@ static ST87EC_Lib_HttpTransferObject_t httpTxObj;
  * command is received and cleared when the measurement is completed */
 static volatile bool g_forceMeasurementInProgress = false;
 
+/* Flag to indicate if a command acknowledgment is in progress, set when a command acknowledgment
+ * is being sent and cleared when the acknowledgment is completed */
+static volatile bool g_commandAckInProgress = false;
+
+static char g_http_ack_json[256];
+static char g_http_ack_request[384];
+
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 
@@ -238,6 +252,8 @@ static void BuildIsoTimestamp(char *out, size_t out_size);
 static bool BuildTelemetryJson(const SensorsData *data, char *json, size_t json_size);
 static bool BuildFixedTelemetryJson(char *json, size_t json_size);
 static bool BuildPendingCommandsGetRequest(char *request, size_t request_size);
+static bool BuildCommandAckJson(char *json, size_t json_size);
+static bool BuildCommandAckRequest(const char *deviceId, uint32_t commandId, const char *json, char *request, size_t request_size);
 
 /* Helper functions for time & parsing JSON and extracting values */
 static uint32_t GetCurrentTimeSeconds(void);
@@ -527,11 +543,20 @@ static void HTTPTask(void *pvParameters)
               printf("\r\nFailed to close HTTP connection: %d\r\n", result);
             }
 
+            /* After closing the connection, determine the next state based on the current HTTP flow */
             if(g_httpFlow == HttpFlow_Telemetry)
             {
               // Reset the pending telemetry flag after closing the connection
               g_hasPendingTelemetry = false;
-              http_state = HttpApiState_OpenPendingCommandsConnection;
+
+              if(g_forceMeasurementInProgress && g_pendingCommand.valid)
+              {
+                http_state = HttpApiState_OpenCommandAckConnection;
+              }
+              else
+              {
+                http_state = HttpApiState_OpenPendingCommandsConnection;
+              }
             }
             else
             {
@@ -543,14 +568,15 @@ static void HTTPTask(void *pvParameters)
                * -> invio POST telemetria -> chiusura connessione -> h_hasPendingTelemetry = false (ECCO) ->
                * -> polling pending commands -> close connection (SIAMO QUA) -> arm periodic timer -> idle
                */
-
               if(g_forceMeasurementInProgress)
               {
                 printf("\r\nWaiting for forced measurement telemetry to be produced...\r\n");
                 http_state = HttpApiState_WaitForcedMeasurementTelemetry;
               }
-
-              http_state = HttpApiState_ArmPeriodicTimer;
+              else
+              {
+                http_state = HttpApiState_ArmPeriodicTimer;
+              }
             }
             break;
           }
@@ -683,6 +709,93 @@ static void HTTPTask(void *pvParameters)
               {
                 printf("\r\nPopped event type %d while waiting for forced measurement. Ignoring unexpected event.\r\n", ev.event_type);
               }
+            }
+            break;
+          }
+        case HttpApiState_OpenCommandAckConnection:
+          {
+            // Prepare the command acknowledgment JSON and HTTP request
+            memset(g_http_ack_json, 0, sizeof(g_http_ack_json));
+            memset(g_http_ack_request, 0, sizeof(g_http_ack_request));
+
+            /* switch to command acknowledgment flow for sending the acknowledgment */
+            g_httpFlow = HttpFlow_CommandAck;
+
+            if(!BuildCommandAckJson(g_http_ack_json, sizeof(g_http_ack_json)))
+            {
+              printf("\r\nFailed to build command acknowledgment JSON.\r\n");
+              http_state = HttpApiState_ArmPeriodicTimer;
+              break;
+            }
+
+            if(!BuildCommandAckRequest("DEV001", g_pendingCommand.id, g_http_ack_json, g_http_ack_request, sizeof(g_http_ack_request)))
+            {
+              printf("\r\nFailed to build command acknowledgment HTTP request.\r\n");
+              http_state = HttpApiState_ArmPeriodicTimer;
+              break;
+            }
+
+            printf("\r\nCommand Acknowledgment HTTP REQUEST:\r\n%s\r\n", g_http_ack_request);
+
+            httpTxObj.pHttpRawInStr = g_http_ack_request;
+            http_response_received = false;
+//            g_commandAckInProgress = true;
+
+            printf("\r\nOpening HTTP connection for command acknowledgment (POST request)...\r\n");
+            result = ST87EC_Lib_NBIOT_HttpOpen(HTTP_SERVER_IP, HTTP_SERVER_PORT, HTTP_SECURE_ID, HTTP_TIMEOUT_MS);
+
+            if(result == RESULT_OK)
+            {
+              http_state = HttpApiState_WaitCommandAckOpen;
+            }
+            else
+            {
+              printf("\r\nFailed to open HTTP connection for command acknowledgment: %d\r\n", result);
+              http_state = HttpApiState_ArmPeriodicTimer;
+            }
+            break;
+          }
+        case HttpApiState_WaitCommandAckOpen:
+          {
+            if(eclib_state.HttpConnectionStatus == HTTP_CONNECTED)
+            {
+              printf("\r\nHTTP connection for command acknowledgment opened successfully.\r\n");
+              vTaskDelay(pdMS_TO_TICKS(200));
+              http_state = HttpApiState_SendCommandAckRequest;
+            }
+            break;
+          }
+        case HttpApiState_SendCommandAckRequest:
+          {
+            printf("\r\nSending command ACK request...\r\n");
+
+            result = ST87EC_Lib_NBIOT_HttpTransfer(&httpTxObj);
+
+            if(result == RESULT_OK)
+            {
+              http_state = HttpApiState_WaitCommandAckResponse;
+            }
+            else
+            {
+              printf("\r\nFailed to send command ACK request: %d\r\n", result);
+              http_state = HttpApiState_ArmPeriodicTimer;
+            }
+            break;
+          }
+        case HttpApiState_WaitCommandAckResponse:
+          {
+            if(http_response_received)
+            {
+              printf("\r\nHTTP response for command ACK received.\r\n");
+//              printf("\r\nCommand ACK raw payload:\r\n%s\r\n", g_lastHttpResponse);
+
+              /* Reset the command acknowledgment flag after receiving the response */
+//              g_commandAckInProgress = false;
+
+              g_forceMeasurementInProgress = false;
+              memset(&g_pendingCommand, 0, sizeof(g_pendingCommand));
+
+              http_state = HttpApiState_CloseConnection;
             }
             break;
           }
@@ -984,6 +1097,66 @@ static bool BuildPendingCommandsGetRequest(char *request, size_t request_size)
   if((written < 0) || ((size_t) written >= request_size))
   {
     printf("BuildPendingCommandsGetRequest failed: buffer too small\r\n");
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief Builds a JSON string acknowledging the execution of a command.
+ *
+ * This function creates a JSON string indicating that a command has been executed successfully.
+ * The acknowledgment includes the status, timestamp of acknowledgment, and a result message.
+ *
+ * @param json Pointer to the output buffer where the acknowledgment JSON string will be stored.
+ * @param json_size Size of the output buffer in bytes.
+ * @return true if the acknowledgment JSON string was successfully built and fits within the provided buffer; false if the buffer is too small.
+ */
+static bool BuildCommandAckJson(char *json, size_t json_size)
+{
+  char timestamp[32];
+
+  BuildIsoTimestamp(timestamp, sizeof(timestamp));
+
+  int written = snprintf(json, json_size, "{\"status\":\"EXECUTED\","
+                         "\"ackAt\":\"%s\","
+                         "\"resultMessage\":\"Measurement executed successfully\"}",
+                         timestamp);
+
+  if((written < 0) || ((size_t) written >= json_size))
+  {
+    printf("BuildCommandAckJson failed: buffer too small\r\n");
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief Builds an HTTP POST request string to acknowledge the execution of a command.
+ *
+ * This function formats the HTTP POST request to acknowledge the execution of a specific command for a device.
+ * The request includes the device ID, command ID, and acknowledgment JSON payload.
+ *
+ * @param deviceId Pointer to the device ID string.
+ * @param commandId The ID of the command being acknowledged.
+ * @param json Pointer to the acknowledgment JSON payload string.
+ * @param request Pointer to the output buffer where the HTTP POST request string will be stored.
+ * @param request_size Size of the output buffer in bytes.
+ * @return true if the HTTP POST request string was successfully built and fits within the provided buffer; false if the buffer is too small.
+ */
+static bool BuildCommandAckRequest(const char *deviceId, uint32_t commandId, const char *json, char *request, size_t request_size)
+{
+  int written = snprintf(request, request_size, "POST /api/v1/devices/%s/commands/%lu/ack HTTP/1.1\r\n"
+                         "Content-Type: application/json\r\n"
+                         "\r\n"
+                         "%s",
+                         deviceId, (unsigned long) commandId, json);
+
+  if((written < 0) || ((size_t) written >= request_size))
+  {
+    printf("BuildCommandAckRequest failed: buffer too small\r\n");
     return false;
   }
 
