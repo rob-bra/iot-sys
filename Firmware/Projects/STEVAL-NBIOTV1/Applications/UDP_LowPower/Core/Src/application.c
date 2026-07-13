@@ -55,8 +55,6 @@ typedef enum HTTP_API_State
   HttpApiState_SendRequest,
   HttpApiState_WaitResponse,
   HttpApiState_CloseConnection,
-  HttpApiState_ArmPeriodicTimer,
-//  HttpApiState_GoToSleep,
 
   /* ---pending states --- */
   HttpApiState_OpenPendingCommandsConnection,
@@ -64,6 +62,12 @@ typedef enum HTTP_API_State
   HttpApiState_SendPendingCommandsRequest,
   HttpApiState_WaitPendingCommandsResponse,
   HttpApiState_ClosePendingCommandsConnection,
+
+  /* --- forced measurement state --- */
+  HttpApiState_WaitForcedMeasurementTelemetry,
+
+  HttpApiState_ArmPeriodicTimer,
+//  HttpApiState_GoToSleep,
 } HTTP_API_State;
 
 /* variabile per gestire il flusso di dati HTTP */
@@ -211,6 +215,10 @@ static char g_http_cmd_request[HTTP_REQUEST_BUFFER_SIZE];
 static char g_http_cmd_response[HTTP_REQUEST_BUFFER_SIZE];
 
 static ST87EC_Lib_HttpTransferObject_t httpTxObj;
+
+/* Flag to indicate if a force measurement is in progress, set when a force measurement
+ * command is received and cleared when the measurement is completed */
+static volatile bool g_forceMeasurementInProgress = false;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -534,7 +542,14 @@ static void HTTPTask(void *pvParameters)
                * idle -> pop evento -> h_hasPendingTelemetry = true -> prepare telemetry ->
                * -> invio POST telemetria -> chiusura connessione -> h_hasPendingTelemetry = false (ECCO) ->
                * -> polling pending commands -> close connection (SIAMO QUA) -> arm periodic timer -> idle
-               * */
+               */
+
+              if(g_forceMeasurementInProgress)
+              {
+                printf("\r\nWaiting for forced measurement telemetry to be produced...\r\n");
+                http_state = HttpApiState_WaitForcedMeasurementTelemetry;
+              }
+
               http_state = HttpApiState_ArmPeriodicTimer;
             }
             break;
@@ -617,18 +632,57 @@ static void HTTPTask(void *pvParameters)
 
               /* Parse the pending command from the HTTP response payload */
               if(ParsePendingCommand(g_lastHttpResponse, &g_pendingCommand))
-                  {
-                    printf("\r\nPending command parsed successfully!\r\n");
-                    printf("Command ID   : %lu\r\n", (unsigned long)g_pendingCommand.id);
-                    printf("Command TYPE : %s\r\n", g_pendingCommand.type);
-                    printf("Command DATA : %s\r\n", g_pendingCommand.payload);
-                  }
-                  else
-                  {
-                    printf("\r\nNo valid pending command found.\r\n");
-                  }
+              {
+                printf("\r\nPending command parsed successfully!\r\n");
+                printf("Command ID   : %lu\r\n", (unsigned long) g_pendingCommand.id);
+                printf("Command TYPE : %s\r\n", g_pendingCommand.type);
+                printf("Command DATA : %s\r\n", g_pendingCommand.payload);
+
+                /* Check if the pending command is a FORCE_MEASUREMENT command */
+                if(strcmp(g_pendingCommand.type, "FORCE_MEASUREMENT") == 0)
+                {
+                  eEventType_t event = eEventForceMeasurement;
+                  printf("\r\nFORCE_MEASUREMENT detected. Triggering immediate sensor acquisition...\r\n");
+
+                  configASSERT(xDataQueue != NULL);
+                  xQueueSend(xDataQueue, &event, portMAX_DELAY); // put the FORCE_MEASUREMENT event in the queue to trigger immediate sensor acquisition
+
+                  g_forceMeasurementInProgress = true;
+                }
+              }
+              else
+              {
+                printf("\r\nNo valid pending command found.\r\n");
+              }
 
               http_state = HttpApiState_CloseConnection;
+            }
+            break;
+          }
+        case HttpApiState_WaitForcedMeasurementTelemetry:
+          {
+            SensorsData ev;
+
+            if(EventBuffer_Pop(&ev))
+            {
+              if(ev.event_type == eEventForceMeasurement)
+              {
+                printf("\r\nForced measurement telemetry is ready.\r\n");
+
+                g_pendingTelemetry = ev;
+                g_hasPendingTelemetry = true;
+
+                /* reset the flag after the forced measurement telemetry is ready */
+                g_forceMeasurementInProgress = false;
+
+                /*switch back to telemetry flow for sending the forced measurement telemetry*/
+                g_httpFlow = HttpFlow_Telemetry;
+                http_state = HttpApiState_PrepareTelemetry;
+              }
+              else
+              {
+                printf("\r\nPopped event type %d while waiting for forced measurement. Ignoring unexpected event.\r\n", ev.event_type);
+              }
             }
             break;
           }
@@ -640,7 +694,6 @@ static void HTTPTask(void *pvParameters)
 //            printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int) APPLICATION_SLEEP_TIME_S);
 //            /* Start the LPTIM timer for the next FIXED sleep period */
 //            HAL_LPTIM_TimeOut_Start_IT(&hlptim1, LPTIM_PERIOD);
-
             /* --- NEW USER-DEFINED TIMER - g_sampling_period_s --- */
             printf("\r\nArming periodic timer for %ds...\r\n", (unsigned int) g_sampling_period_s);
             /* Start the LPTIM timer for the next sleep period CHOSEN by the user through web dashboard */
@@ -731,7 +784,7 @@ static void HTTPReceiveCallback(char const *const receivedData)
 
   http_response_received = true;
 
-  // per adesso la gestione della chiusura della connessione la faccio nello stato HttpApiState_WaitResponse
+// per adesso la gestione della chiusura della connessione la faccio nello stato HttpApiState_WaitResponse
 //  http_state = HttpApiState_CloseConnection;
 }
 
@@ -922,8 +975,7 @@ static bool BuildPendingCommandsGetRequest(char *request, size_t request_size)
    * altrimenti la richiesta fallisce.
    * Per questo motivo viene inviato un body minimo "{}" come workaround.
    */
-  int written = snprintf(request, request_size,
-                         "GET /api/v1/devices/%s/commands/pending HTTP/1.1\r\n"
+  int written = snprintf(request, request_size, "GET /api/v1/devices/%s/commands/pending HTTP/1.1\r\n"
                          "Content-Type: application/json\r\n"
                          "\r\n{}"
                          "\r\n",
@@ -1008,7 +1060,7 @@ static bool ExtractJsonUint32(const char *json, const char *key, uint32_t *value
     return false;
   }
 
-  *value = (uint32_t)strtoul(p, NULL, 10);
+  *value = (uint32_t) strtoul(p, NULL, 10);
   return true;
 }
 
@@ -1051,7 +1103,7 @@ static bool ExtractJsonString(const char *json, const char *key, char *out, size
     return false;
   }
 
-  size_t len = (size_t)(end - p);
+  size_t len = (size_t) (end - p);
   if(len >= out_size)
   {
     len = out_size - 1U;
@@ -1307,7 +1359,7 @@ static void GetTimeCallback(char const *const pString)
 
   strptime(tmp_str, "%y/%m/%d,%H:%M:%S", &result);
 
-  // ** Check if the parsed time is valid **************************************
+// ** Check if the parsed time is valid **************************************
   bool valid_time = true;
 
   if((result.tm_year < 124) ||   // 2024 = 124 in tm_year
@@ -1323,7 +1375,7 @@ static void GetTimeCallback(char const *const pString)
     http_state = HttpApiState_Init;
     return;
   }
-  // *************************************************************************
+// *************************************************************************
 
   RTC_TimeTypeDef time =
   {
