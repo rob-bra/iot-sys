@@ -364,11 +364,21 @@ static void HTTPTask(void *pvParameters)
       printf("\r\nThere was an error in sequence execution...\r\n");
       printf("\r\nModem reset underway...\r\n");
       ST87EC_Lib_Reset();
+
+      /* Reset the HTTP state machine and flow to initial state after modem reset */
       http_state = HttpApiState_Init;
-      g_hasPendingTelemetry = false;  // reset pending telemetry flag after modem reset
+      g_httpFlow = HttpFlow_Telemetry;
+
+      /* Reset the flags and buffers related to pending telemetry and commands */
+      g_forceMeasurementInProgress = false;
+      g_hasPendingTelemetry = false;
+      http_response_received = false;
+      memset(&g_pendingCommand, 0, sizeof(g_pendingCommand));
+      memset(&g_pendingTelemetry, 0, sizeof(g_pendingTelemetry));
+      memset(g_lastHttpResponse, 0, sizeof(g_lastHttpResponse));
 
       //** clear the event buffer to avoid sending stale data after modem reset ******
-      void EventBuffer_Clear(void);
+      EventBuffer_Clear();
       //******************************************************************************
 
       printf("\r\nModem reset complete...\r\n");
@@ -543,31 +553,40 @@ static void HTTPTask(void *pvParameters)
               printf("\r\nFailed to close HTTP connection: %d\r\n", result);
             }
 
-            /* After closing the connection, determine the next state based on the current HTTP flow */
+            /*--- After closing the connection, determine the next state based on the current HTTP flow ---*/
+            /*
+             * If the current flow is telemetry, reset the pending telemetry flag and check if a forced measurement is in progress.
+             * If so, transition to the command acknowledgment state; otherwise, transition to the pending commands state.
+             *
+             * If the current flow is pending commands, check if a forced measurement is in progress.
+             * If so, transition to the wait state for forced measurement telemetry; otherwise, transition to the arm periodic timer state.
+             *
+             * If the current flow is command acknowledgment, clear the pending command state and transition to the arm periodic timer state.
+             */
             if(g_httpFlow == HttpFlow_Telemetry)
             {
-              // Reset the pending telemetry flag after closing the connection
-              g_hasPendingTelemetry = false;
+              g_hasPendingTelemetry = false; // Reset the pending telemetry flag after closing the connection
 
               if(g_forceMeasurementInProgress && g_pendingCommand.valid)
               {
-                http_state = HttpApiState_OpenCommandAckConnection;
+                http_state = HttpApiState_OpenCommandAckConnection;  // mando l'ack
               }
               else
               {
-                http_state = HttpApiState_OpenPendingCommandsConnection;
+                http_state = HttpApiState_OpenPendingCommandsConnection; // controllo se ci sono comandi pendenti
               }
             }
-            else
+            else if(g_httpFlow == HttpFlow_PendingCommands)
             {
-              /* NON serve resettare il flag g_hasPendingTelemetry qui perché il reset
+              /* ***********************************************************************************************
+               * NON serve resettare il flag g_hasPendingTelemetry qui perché il reset
                * avviene SOLO DOPO l'invio della telemetria, e non dopo l'invio dei comandi pendenti,
                * quindi è già stato fatto, dal momento che il flusso è:
                *
                * idle -> pop evento -> h_hasPendingTelemetry = true -> prepare telemetry ->
                * -> invio POST telemetria -> chiusura connessione -> h_hasPendingTelemetry = false (ECCO) ->
                * -> polling pending commands -> close connection (SIAMO QUA) -> arm periodic timer -> idle
-               */
+               * ***********************************************************************************************/
               if(g_forceMeasurementInProgress)
               {
                 printf("\r\nWaiting for forced measurement telemetry to be produced...\r\n");
@@ -577,6 +596,15 @@ static void HTTPTask(void *pvParameters)
               {
                 http_state = HttpApiState_ArmPeriodicTimer;
               }
+            }
+            else if(g_httpFlow == HttpFlow_CommandAck)
+            {
+              printf("\r\nCommand ACK completed. Clearing pending command state...\r\n");
+
+              g_forceMeasurementInProgress = false;
+              memset(&g_pendingCommand, 0, sizeof(g_pendingCommand));
+
+              http_state = HttpApiState_ArmPeriodicTimer;
             }
             break;
           }
@@ -691,25 +719,37 @@ static void HTTPTask(void *pvParameters)
 
             if(EventBuffer_Pop(&ev))
             {
-              if(ev.event_type == eEventForceMeasurement)
-              {
-                printf("\r\nForced measurement telemetry is ready.\r\n");
+              printf("\r\nForced measurement telemetry is ready.\r\n");
 
-                g_pendingTelemetry = ev;
-                g_hasPendingTelemetry = true;
+              g_pendingTelemetry = ev;
+              g_hasPendingTelemetry = true;
 
-                /* reset the flag after the forced measurement telemetry is ready */
-                g_forceMeasurementInProgress = false;
-
-                /*switch back to telemetry flow for sending the forced measurement telemetry*/
-                g_httpFlow = HttpFlow_Telemetry;
-                http_state = HttpApiState_PrepareTelemetry;
-              }
-              else
-              {
-                printf("\r\nPopped event type %d while waiting for forced measurement. Ignoring unexpected event.\r\n", ev.event_type);
-              }
+              /*switch back to telemetry flow for sending the forced measurement telemetry*/
+              g_httpFlow = HttpFlow_Telemetry;
+              http_state = HttpApiState_PrepareTelemetry;
             }
+
+//      // -------------- OLD IMPLEMENTATION --------------
+//        if(EventBuffer_Pop(&ev))
+//        {
+//          if(ev.event_type == eEventForceMeasurement)
+//          {
+//            printf("\r\nForced measurement telemetry is ready.\r\n");
+//
+//            g_pendingTelemetry = ev;
+//            g_hasPendingTelemetry = true;
+//
+//            /* reset the flag after the forced measurement telemetry is ready */
+//            g_forceMeasurementInProgress = false;
+//
+//            /*switch back to telemetry flow for sending the forced measurement telemetry*/
+//            g_httpFlow = HttpFlow_Telemetry;
+//            http_state = HttpApiState_PrepareTelemetry;
+//          }
+//          else
+//          {
+//            printf("\r\nPopped event type %d while waiting for forced measurement. Ignoring unexpected event.\r\n", ev.event_type);
+//          }
             break;
           }
         case HttpApiState_OpenCommandAckConnection:
@@ -791,10 +831,8 @@ static void HTTPTask(void *pvParameters)
 
               /* Reset the command acknowledgment flag after receiving the response */
 //              g_commandAckInProgress = false;
-
-              g_forceMeasurementInProgress = false;
-              memset(&g_pendingCommand, 0, sizeof(g_pendingCommand));
-
+//              g_forceMeasurementInProgress = false;
+//              memset(&g_pendingCommand, 0, sizeof(g_pendingCommand));
               http_state = HttpApiState_CloseConnection;
             }
             break;
@@ -1460,29 +1498,52 @@ void HAL_LPTIM_CompareMatchCallback(LPTIM_HandleTypeDef *hlptim)
  */
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
+//  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+//  bool valid_pin = (GPIO_Pin == LIS2DUXS12_INT1_Pin) || (GPIO_Pin == LIS2DUXS12_INT2_Pin);
+//  eEventType_t event;
+//
+//  if(GPIO_Pin == LIS2DUXS12_INT1_Pin)
+//  {
+//    event = eEventMLC1; // event generated by INT1 (MLC1_SRC)
+//  }
+//
+//  if(GPIO_Pin == LIS2DUXS12_INT2_Pin)
+//  {
+//    event = eEventFSM; // event generated by INT2 (FSM_OUTS)
+//  }
+//
+//  if(hlptim1.Instance != 0 && valid_pin)
+//  {
+//    HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);  // stop dell'interrupt del timer
+//
+//    configASSERT(xDataQueue != NULL);
+//    xQueueSendFromISR(xDataQueue, &event, &xHigherPriorityTaskWoken);
+//
+//    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+//  }
+
+  /* --- MODIFIED FOR ACK PROBLEMS --- */
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  bool valid_pin = (GPIO_Pin == LIS2DUXS12_INT1_Pin) || (GPIO_Pin == LIS2DUXS12_INT2_Pin);
   eEventType_t event;
 
   if(GPIO_Pin == LIS2DUXS12_INT1_Pin)
   {
-    event = eEventMLC1; // event generated by INT1 (MLC1_SRC)
+    event = eEventMLC1;
+    printf(">>> EXTI INT1: eEventMLC1 queued\r\n");
   }
-
-  if(GPIO_Pin == LIS2DUXS12_INT2_Pin)
+  else if(GPIO_Pin == LIS2DUXS12_INT2_Pin)
   {
-    event = eEventFSM; // event generated by INT2 (FSM_OUTS)
+    event = eEventFSM;
+    printf(">>> EXTI INT2: eEventFSM queued\r\n");
   }
-
-  if(hlptim1.Instance != 0 && valid_pin)
+  else
   {
-    HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);  // stop dell'interrupt del timer
-
-    configASSERT(xDataQueue != NULL);
-    xQueueSendFromISR(xDataQueue, &event, &xHigherPriorityTaskWoken);
-
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    return;
   }
+
+  configASSERT(xDataQueue != NULL);
+  xQueueSendFromISR(xDataQueue, &event, &xHigherPriorityTaskWoken);
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 /**
