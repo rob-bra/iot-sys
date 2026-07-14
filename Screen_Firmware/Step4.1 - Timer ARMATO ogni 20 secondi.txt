@@ -1,0 +1,441 @@
+--------------- NB-IoT HTTP application init ---------------
+Waiting for network registration...
+Humidity and Temperature sensor initialization OK!
+
+
+--------------- NB-IoT HTTP application init ---------------
+Waiting for network registration...
+Humidity and Temperature sensor initialization OK!
+Barometer initialization OK!
+Accelerometer initialization OK!
+<--
+--> AT#NVMRD=5,12,1
+<-- #REBOOT_RESET
+<--
+<-- #SIMST: 1
+<--
+<-- #NVMRD: 42
+<--
+--> ATE0
+<-- OK
+<--
+--> AT+CMEE=1
+<-- +CEREG: 2,"","",,,,"",""
+<--
+<-- OK
+Ignoring event type 4 during HTTP baseline phase
+Ignoring event type 3 during HTTP baseline phase
+--> AT+CEREG=5
+<--
+<-- OK
+--> AT+CSCON=1
+<--
+<-- OK
+--> AT#SLEEPIND=0x1F
+<--
+<-- OK
+--> AT#WDGMODE=0
+<--
+<-- OK
+--> AT#TEMPLIMIT=-40,85,-45,110,0,1
+<--
+<-- OK
+Ignoring event type 3 during HTTP baseline phase
+--> AT#VBATLIMIT=2200,3000,2000,3200,1,0,0
+<--
+<-- OK
+--> AT+CFUN=0
+<--
+<-- OK
+--> AT#BANDSEL=20,8
+<--
+<-- +CEREG: 0,"","",,,,"",""
+<--
+<-- OK
+--> AT#BANDCFG=0,0,20,01,7910
+<--
+<-- OK
+--> AT#BANDCFG=0,1,0,2,1,100,0
+<--
+<-- OK
+--> AT#BANDCFG=0,2,0,2,1,100,100
+<--
+<-- OK
+--> AT#BANDCFG=0,3,0,2,1,100,200
+<--
+<-- OK
+--> AT#SCAN=1,-104,1,360,1,360
+<--
+<-- OK
+--> AT+CEDRXS=1,5,1011
+<--
+<-- OK
+--> AT#PTW=0011
+<--
+<-- OK
+--> AT+CPSMS=1,,,"00100001","00000101"
+<--
+<-- OK
+--> AT#SLEEPMODE=0,10,0
+<--
+<-- OK
+--> AT#RINGPIN=0,10,1,200
+<--
+<-- OK
+--> AT#WAKEUPEVENT=15,3
+<--
+<-- OK
+--> AT#IPPARAMS=1,0,65535,60,1,"8.8.8.8"
+<--
+<-- OK
+--> AT#WSCAN=2,1
+<--
+<-- OK
+--> AT#WSCAN=3,1024
+<--
+<-- OK
+--> AT#WSCAN=4,0
+<--
+<-- OK
+--> AT#NVMWR=5,12,1,67
+<--
+<-- OK
+--> AT#RESET=1
+<--
+<-- OK
+<--
+<-- OK
+<--
+<-- #REBOOT_HOST
+<--
+<-- #SIMST: 1
+<--
+<-- +CEREG: 2,"","",,,,"",""
+<--
+<-- +CEREG: 0,"","",,,,"",""
+<--
+<-- +CEREG: 2,"","",,,,"",""
+<--
+<-- +CSCON: 1
+<--
+<-- +CGEV: ME PDN ACT 5
+<--
+<-- #IPCFG: 5,0,1
+<--
+<-- +CEREG: 5,"42C7","0068BD70",9,,,"00000101",""
+Registration complete. Attached to NB-IoT network!
+
+--> AT+CCLK?
+<--
+<-- +CCLK: "26/07/12,10:53:55+08"
+Current time: "26/07/12,10:53:55+08"
+
+
+Resuming Sensor Task...
+Temperature [C]: 33.38
+Humidity [%RH]: 42.98
+Pressure [hPa]: 997.64
+Accelerometer [mg]: x=-5.86     y=-3.90 z=253.76
+
+Event Buffer Contents:
+Index 0: Event Type = FIRST, MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+
+Popped event type 0 from buffer index 0
+<--
+
+Preparing telemetry for event type 0...
+
+HTTP JSON:
+{"deviceId": "DEV001","timestamp": "2026-07-12T10:53:55Z","temperature": 33.38,"humidity": 42.98,"pressure": 997.64,"battery": 100,"orientation": "shaken"}
+
+HTTP REQUEST:
+POST /api/v1/telemetry HTTP/1.1
+Content-Type: application/json
+
+{"deviceId": "DEV001","timestamp": "2026-07-12T10:53:55Z","temperature": 33.38,"humidity": 42.98,"pressure": 997.64,"battery": 100,"orientation": "shaken"}
+<-- OK
+
+Opening HTTP connection...
+--> AT#HTTPSTART?
+<--
+<-- #HTTPSTART: 0
+<--
+--> AT#SOCKETCREATE?
+<-- OK
+<--
+<-- #SOCKETCREATE:
+<--
+--> AT#DNS=5,0,10.68.87.69
+<-- OK
+<--
+<-- #DNS: 10.68.87.69,0
+<--
+--> AT#SOCKETCREATE=5,0,TCP,,60,60,1
+<-- OK
+<--
+<-- #SOCKETCREATE: 0
+<--
+--> AT#TCPCONNECT?
+<-- OK
+<-- #TCPCONNECT:5,0,3
+<--
+--> AT#TCPCONNECT=5,0,10.68.87.69,8080
+<-- OK
+<--
+<-- +CSCON: 0
+
+There was an error in sequence execution...
+
+Modem reset underway...
+
+Modem reset complete...
+<--
+<-- #REBOOT_RESET
+<--
+<-- #SIMST: 1
+<--
+<-- +CEREG: 2,"","",,,,"",""
+<--
+<-- +CEREG: 0,"","",,,,"",""
+<--
+<-- +CEREG: 2,"","",,,,"",""
+<--
+<-- +CSCON: 1
+<--
+<-- +CGEV: ME PDN ACT 5
+<--
+<-- #IPCFG: 5,0,1
+<--
+<-- +CEREG: 5,"42C7","0068BD70",9,,,"00000101",""
+Registration complete. Attached to NB-IoT network!
+
+--> AT+CCLK?
+<--
+<-- +CCLK: "26/07/12,10:54:21+08"
+Current time: "26/07/12,10:54:21+08"
+
+
+Resuming Sensor Task...
+Temperature [C]: 33.48
+Humidity [%RH]: 42.89
+Pressure [hPa]: 997.66
+Accelerometer [mg]: x=-7.81     y=-3.90 z=255.71
+
+Event Buffer Contents:
+Index 1: Event Type = FIRST, MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+
+Popped event type 0 from buffer index 1
+<--
+
+Preparing telemetry for event type 0...
+
+HTTP JSON:
+{"deviceId": "DEV001","timestamp": "2026-07-12T10:54:21Z","temperature": 33.48,"humidity": 42.89,"pressure": 997.66,"battery": 100,"orientation": "shaken"}
+
+HTTP REQUEST:
+POST /api/v1/telemetry HTTP/1.1
+Content-Type: application/json
+
+{"deviceId": "DEV001","timestamp": "2026-07-12T10:54:21Z","temperature": 33.48,"humidity": 42.89,"pressure": 997.66,"battery": 100,"orientation": "shaken"}
+<-- OK
+
+Opening HTTP connection...
+--> AT#HTTPSTART?
+<--
+<-- #HTTPSTART: 0
+<--
+--> AT#SOCKETCREATE?
+<-- OK
+<--
+<-- #SOCKETCREATE:
+<--
+--> AT#DNS=5,0,10.68.87.69
+<-- OK
+<--
+<-- #DNS: 10.68.87.69,0
+<--
+--> AT#SOCKETCREATE=5,0,TCP,,60,60,1
+<-- OK
+<--
+<-- #SOCKETCREATE: 0
+<--
+--> AT#TCPCONNECT?
+<-- OK
+<-- #TCPCONNECT:5,0,3
+<--
+--> AT#TCPCONNECT=5,0,10.68.87.69,8080
+<-- OK
+<--
+--> AT#HTTPSTART
+<-- OK
+<--
+
+HTTP connection opened successfully.
+<-- OK
+
+Sending HTTP POST request...
+
+--> AT#HTTPMETHOD=POST,10.68.87.69,/api/v1/telemetry,0
+<--
+--> AT#HTTPHEADER=Content-Type,application/json
+<-- OK
+<--
+--> AT#HTTPSEND=5,0,{"deviceId": "DEV001","timestamp": "2026-07-12T10:54:21Z","temperature": 33.48,"humidity": 42.89,"pressure": 997.66,"battery": 100,"orientation": "shaken"}
+<-- OK
+<--
+<-- OK
+<--
+<-- #HTTPRECV: 0,106,200,56
+<--
+<-- #HTTPRECV: 1,56
+--> AT#HTTPREAD
+<--
+<-- #HTTPREAD: 106
+<-- HTTP/1.1 200
+<-- Content-Type: application/json
+<-- Content-Length: 56
+<-- Date: Sun, 12 Jul 2026 10:54:24 GMT
+<--
+<--
+<--
+--> AT#HTTPREAD
+<-- OK
+<--
+<-- #HTTPREAD: 56
+<-- {"message":"Telemetry saved successfully","status":"ok"}
+<--
+
+*** Received HTTP data.
+*** Payload: HTTP/1.1 200
+Content-Type: application/json
+Content-Length: 56
+Date: Sun, 12 Jul 2026 10:54:24 GMT
+
+{"message":"Telemetry saved successfully","status":"ok"}
+<-- OK
+
+HTTP response received.
+
+Closing HTTP connection...
+--> AT#HTTPSTOP
+<--
+--> AT#SOCKETCLOSE=5,0
+<-- OK
+<--
+
+Arming periodic timer for 20s...
+<-- OK
+<--
+<-- +CSCON: 0
+>>> LPTIM CompareMatch: sending eEventTimer to queue
+
+Resuming Sensor Task...
+Temperature [C]: 33.55
+Humidity [%RH]: 42.66
+Pressure [hPa]: 997.69
+Accelerometer [mg]: x=-7.81     y=-7.81 z=253.76
+
+Event Buffer Contents:
+Index 2: Event Type = TIMER, MLC Output = 0x00, FSM_IMPACT=0, FSM_FF=0
+
+Popped event type 1 from buffer index 2
+
+Preparing telemetry for event type 1...
+
+HTTP JSON:
+{"deviceId": "DEV001","timestamp": "2026-07-12T10:54:45Z","temperature": 33.55,"humidity": 42.66,"pressure": 997.69,"battery": 100,"orientation": "shaken"}
+
+HTTP REQUEST:
+POST /api/v1/telemetry HTTP/1.1
+Content-Type: application/json
+
+{"deviceId": "DEV001","timestamp": "2026-07-12T10:54:45Z","temperature": 33.55,"humidity": 42.66,"pressure": 997.69,"battery": 100,"orientation": "shaken"}
+
+Opening HTTP connection...
+--> AT#HTTPSTART?
+<--
+<-- #HTTPSTART: 0
+<--
+--> AT#SOCKETCREATE?
+<-- OK
+<--
+<-- #SOCKETCREATE:
+<--
+--> AT#DNS=5,0,10.68.87.69
+<-- OK
+<--
+<-- #DNS: 10.68.87.69,0
+<--
+--> AT#SOCKETCREATE=5,0,TCP,,60,60,1
+<-- OK
+<--
+<-- #SOCKETCREATE: 0
+<--
+--> AT#TCPCONNECT?
+<-- OK
+<-- #TCPCONNECT:5,0,3
+<--
+--> AT#TCPCONNECT=5,0,10.68.87.69,8080
+<-- OK
+<--
+<-- +CSCON: 1
+<--
+--> AT#HTTPSTART
+<-- OK
+<--
+
+HTTP connection opened successfully.
+<-- OK
+
+Sending HTTP POST request...
+
+--> AT#HTTPMETHOD=POST,10.68.87.69,/api/v1/telemetry,0
+<--
+--> AT#HTTPHEADER=Content-Type,application/json
+<-- OK
+<--
+--> AT#HTTPSEND=5,0,{"deviceId": "DEV001","timestamp": "2026-07-12T10:54:45Z","temperature": 33.55,"humidity": 42.66,"pressure": 997.69,"battery": 100,"orientation": "shaken"}
+<-- OK
+<--
+<-- OK
+<--
+<-- #HTTPRECV: 0,106,200,56
+<--
+<-- #HTTPRECV: 1,56
+--> AT#HTTPREAD
+<--
+<-- #HTTPREAD: 106
+<-- HTTP/1.1 200
+<-- Content-Type: application/json
+<-- Content-Length: 56
+<-- Date: Sun, 12 Jul 2026 10:54:49 GMT
+<--
+<--
+<--
+--> AT#HTTPREAD
+<-- OK
+<--
+<-- #HTTPREAD: 56
+<-- {"message":"Telemetry saved successfully","status":"ok"}
+<--
+
+*** Received HTTP data.
+*** Payload: HTTP/1.1 200
+Content-Type: application/json
+Content-Length: 56
+Date: Sun, 12 Jul 2026 10:54:49 GMT
+
+{"message":"Telemetry saved successfully","status":"ok"}
+<-- OK
+
+HTTP response received.
+
+Closing HTTP connection...
+--> AT#HTTPSTOP
+<--
+--> AT#SOCKETCLOSE=5,0
+<-- OK
+<--
+
+Arming periodic timer for 20s...
+<-- OK

@@ -1,0 +1,27 @@
+@startuml
+actor "Utente/Dashboard" as User
+participant "Spring Boot Backend" as Backend
+database "SQLite" as DB
+participant "HTTPTask" as HTTP
+participant "SensorsDataTask" as Sensors
+
+User -> Backend : POST /devices/{id}/commands
+Backend -> DB : Save command as PENDING
+
+HTTP -> Backend : GET /devices/{id}/commands/pending
+Backend -> DB : Read pending commands
+Backend --> HTTP : JSON pending command
+
+HTTP -> HTTP : Parse FORCE_MEASUREMENT
+HTTP -> Sensors : eEventForceMeasurement
+Sensors -> Sensors : Immediate sensor acquisition
+Sensors -> HTTP : Push forced telemetry
+
+HTTP -> Backend : POST /api/v1/telemetry
+Backend -> DB : Save forced telemetry
+Backend --> HTTP : 200 OK
+
+HTTP -> Backend : POST /devices/{id}/commands/{cmdId}/ack
+Backend -> DB : Update command as EXECUTED
+Backend --> HTTP : 200 OK
+@enduml
