@@ -1,0 +1,1 @@
+{"iot":{"name":"iot","packages":{"com.example.iot.dto":{"packageName":"com.example.iot.dto","isAll":false,"classes":["Lcom/example/iot/dto/EchoRequest;","Lcom/example/iot/dto/PendingCommandResponse;","Lcom/example/iot/dto/ThresholdRequest;","Lcom/example/iot/dto/TelemetryRequest;","Lcom/example/iot/dto/CommandRequest;","Lcom/example/iot/dto/CommandAckRequest;"]}}}}
