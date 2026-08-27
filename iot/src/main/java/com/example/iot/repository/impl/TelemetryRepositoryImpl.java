@@ -65,6 +65,19 @@ public class TelemetryRepositoryImpl implements TelemetryRepository {
 	}
 
 	/**
+	 * Restituisce l'ultima telemetria registrata per il dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la telemetria più recente del dispositivo oppure null se assente
+	 */
+	@Override
+	public Map<String, Object> findLatestTelemetryByDeviceId(String deviceId) {
+		String sql = "SELECT * FROM telemetry WHERE device_id = ? ORDER BY id DESC LIMIT 1";
+		List<Map<String, Object>> result = jdbcTemplate.queryForList(sql, deviceId);
+		return result.isEmpty() ? null : result.get(0);
+	}
+	
+	/**
 	 * Restituisce tutte le telemetrie associate al dispositivo specificato.
 	 * 
 	 * Lettura dei dati nel DB di 1 SINGOLO DEVICE
@@ -78,17 +91,6 @@ public class TelemetryRepositoryImpl implements TelemetryRepository {
 		return jdbcTemplate.queryForList(sql, deviceId);
 	}
 
-	/**
-	 * Restituisce l'ultima telemetria registrata per il dispositivo specificato.
-	 *
-	 * @param deviceId l'identificativo del dispositivo
-	 * @return la telemetria più recente del dispositivo oppure null se assente
-	 */
-	@Override
-	public Map<String, Object> findLatestTelemetryByDeviceId(String deviceId) {
-		String sql = "SELECT * FROM telemetry WHERE device_id = ? ORDER BY id DESC LIMIT 1";
-		List<Map<String, Object>> result = jdbcTemplate.queryForList(sql, deviceId);
-		return result.isEmpty() ? null : result.get(0);
-	}
+
 
 }

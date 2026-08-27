@@ -56,16 +56,16 @@ public class CommandServiceImpl implements CommandService {
 		return commandRepository.findCommandsByDeviceId(deviceId);
 	}
 
-	/**
-	 * Restituisce i comandi con stato pendente per il dispositivo specificato.
-	 *
-	 * @param deviceId l'identificativo del dispositivo
-	 * @return la lista dei comandi pendenti
-	 */
-	@Override
-	public List<Map<String, Object>> getPendingCommandsByDeviceId(String deviceId) {
-		return commandRepository.findPendingCommandsByDeviceId(deviceId);
-	}
+//	/**
+//	 * Restituisce i comandi con stato pendente per il dispositivo specificato.
+//	 *
+//	 * @param deviceId l'identificativo del dispositivo
+//	 * @return la lista dei comandi pendenti
+//	 */
+//	@Override
+//	public List<Map<String, Object>> getPendingCommandsByDeviceId(String deviceId) {
+//		return commandRepository.findPendingCommandsByDeviceId(deviceId);
+//	}
 
 	/**
 	 * Registra l'esito dell'esecuzione di un comando remoto.

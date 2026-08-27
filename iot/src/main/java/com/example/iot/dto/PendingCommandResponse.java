@@ -35,7 +35,7 @@ public class PendingCommandResponse {
     /**
      * Costruisce un DTO completo rappresentante un comando remoto.
      * 
-     * @brief Constructs a new PendingCommandResponse with the specified details.
+     * Constructs a new PendingCommandResponse with the specified details.
      *
      * @param id The unique identifier of the pending command.
      * @param deviceId The identifier of the device associated with the command.
@@ -59,7 +59,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the unique identifier of the pending command.
+     * Returns the unique identifier of the pending command.
      *
      * @return The ID of the pending command.
      * */
@@ -68,7 +68,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the identifier of the device associated with the command.
+     * Returns the identifier of the device associated with the command.
      *
      * @return The device ID.
      * */
@@ -77,7 +77,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the type of the command.
+     * Returns the type of the command.
      *
      * @return The command type.
      * */
@@ -86,7 +86,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the payload of the command.
+     * Returns the payload of the command.
      *
      * @return The command payload.
      * */
@@ -95,7 +95,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the current status of the command.
+     * Returns the current status of the command.
      *
      * @return The command status.
      * */
@@ -104,7 +104,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the timestamp when the command was created.
+     * Returns the timestamp when the command was created.
      *
      * @return The creation timestamp.
      * */
@@ -113,7 +113,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns the timestamp when the command was acknowledged.
+     * Returns the timestamp when the command was acknowledged.
      *
      * @return The acknowledgment timestamp.
      * */
@@ -122,7 +122,7 @@ public class PendingCommandResponse {
     }
 
     /**
-     * @brief Returns any result message associated with the command.
+     * Returns any result message associated with the command.
      *
      * @return The result message.
      * */

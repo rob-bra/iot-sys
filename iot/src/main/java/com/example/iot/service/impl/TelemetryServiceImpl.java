@@ -63,6 +63,17 @@ public class TelemetryServiceImpl implements TelemetryService {
 	public List<Map<String, Object>> getAllTelemetry() {
 		return telemetryRepository.findAllTelemetry();
 	}
+	
+	/**
+	 * Restituisce l'ultima telemetria registrata per il dispositivo specificato.
+	 *
+	 * @param deviceId l'identificativo del dispositivo
+	 * @return la telemetria più recente del dispositivo
+	 */
+	@Override
+	public Map<String, Object> getLatestTelemetryByDeviceId(String deviceId) {
+		return telemetryRepository.findLatestTelemetryByDeviceId(deviceId);
+	}
 
 	/**
 	 * Restituisce lo storico delle telemetrie del dispositivo specificato.
@@ -73,16 +84,5 @@ public class TelemetryServiceImpl implements TelemetryService {
 	@Override
 	public List<Map<String, Object>> getTelemetryByDeviceId(String deviceId) {
 		return telemetryRepository.findTelemetryByDeviceId(deviceId);
-	}
-
-	/**
-	 * Restituisce l'ultima telemetria registrata per il dispositivo specificato.
-	 *
-	 * @param deviceId l'identificativo del dispositivo
-	 * @return la telemetria più recente del dispositivo
-	 */
-	@Override
-	public Map<String, Object> getLatestTelemetryByDeviceId(String deviceId) {
-		return telemetryRepository.findLatestTelemetryByDeviceId(deviceId);
 	}
 }

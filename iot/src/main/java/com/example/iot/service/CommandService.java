@@ -31,13 +31,13 @@ public interface CommandService {
 	 */
 	List<Map<String, Object>> getCommandsByDeviceId(String deviceId);
 
-	/**
-	 * Restituisce i comandi ancora pendenti per il dispositivo specificato.
-	 *
-	 * @param deviceId l'identificativo del dispositivo
-	 * @return la lista dei comandi con stato pendente
-	 */
-	List<Map<String, Object>> getPendingCommandsByDeviceId(String deviceId);
+//	/**
+//	 * Restituisce i comandi ancora pendenti per il dispositivo specificato.
+//	 *
+//	 * @param deviceId l'identificativo del dispositivo
+//	 * @return la lista dei comandi con stato pendente
+//	 */
+//	List<Map<String, Object>> getPendingCommandsByDeviceId(String deviceId);
 
 	/**
 	 * Registra l'esito dell'esecuzione di un comando remoto.

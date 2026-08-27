@@ -34,6 +34,17 @@ public class DeviceRepositoryImpl implements DeviceRepository {
 	}
 
 	/**
+	 * Restituisce tutti i dispositivi presenti nel database. Tabella in output.
+	 *
+	 * @return la lista dei dispositivi registrati
+	 */
+	@Override
+	public List<Map<String, Object>> findAllDevices() {
+		String sql = "SELECT * FROM devices ORDER BY device_id";
+		return jdbcTemplate.queryForList(sql);
+	}
+
+	/**
 	 * Inserisce o aggiorna il record del dispositivo nel database.
 	 * 
 	 * Se il device NON esiste, viene aggiunto. Se il device esiste, vengono
@@ -55,16 +66,5 @@ public class DeviceRepositoryImpl implements DeviceRepository {
 				""";
 
 		jdbcTemplate.update(sql, deviceId, battery, lastSeen);
-	}
-
-	/**
-	 * Restituisce tutti i dispositivi presenti nel database. Tabella in output.
-	 *
-	 * @return la lista dei dispositivi registrati
-	 */
-	@Override
-	public List<Map<String, Object>> findAllDevices() {
-		String sql = "SELECT * FROM devices ORDER BY device_id";
-		return jdbcTemplate.queryForList(sql);
 	}
 }
