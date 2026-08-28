@@ -3,6 +3,7 @@
 <head>
     <title>Device Detail</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <h1 th:text="'Dettaglio dispositivo: ' + ${deviceId}">Dettaglio dispositivo</h1>
@@ -136,6 +137,91 @@
 	    </tbody>
 	</table>
 	
+	<h2 th:text="'Grafico temperatura e media mobile (finestra = ' + ${movingAverageWindowSize} + ')'"></h2>
+	<canvas id="temperatureChart" width="900" height="400"></canvas>
+	
+	<h2>Comando rapido</h2>
+	<form th:action="@{/devices-page/{id}/force-measurement(id=${deviceId})}" method="post">
+	    <button type="submit">Richiedi misura immediata</button>
+	</form>
+
+	<script th:inline="javascript">
+	    const temperatureLabels = [
+	        /*[# th:each="p, stat : ${temperatureMovingAverage}"]*/
+	            [[${p.timestamp}]]/*[(${!stat.last ? ',' : ''})]*/
+	        /*[/]*/
+	    ];
+
+	    const temperatureOriginalValues = [
+	        /*[# th:each="p, stat : ${temperatureMovingAverage}"]*/
+	            [[${p.originalValue}]]/*[(${!stat.last ? ',' : ''})]*/
+	        /*[/]*/
+	    ];
+
+	    const temperatureMovingAverageValues = [
+	        /*[# th:each="p, stat : ${temperatureMovingAverage}"]*/
+	            [[${p.movingAverage}]]/*[(${!stat.last ? ',' : ''})]*/
+	        /*[/]*/
+	    ];
+	</script>
+
+	<script>
+	    const ctx = document.getElementById('temperatureChart').getContext('2d');
+
+	    new Chart(ctx, {
+	        type: 'line',
+	        data: {
+	            labels: temperatureLabels,
+	            datasets: [
+	                {
+	                    label: 'Temperatura originale',
+	                    data: temperatureOriginalValues,
+	                    borderColor: 'rgba(255, 99, 132, 1)',
+	                    backgroundColor: 'rgba(255, 99, 132, 0.15)',
+	                    borderWidth: 2,
+	                    tension: 0.2,
+	                    fill: false
+	                },
+	                {
+	                    label: 'Media mobile',
+	                    data: temperatureMovingAverageValues,
+	                    borderColor: 'rgba(54, 162, 235, 1)',
+	                    backgroundColor: 'rgba(54, 162, 235, 0.15)',
+	                    borderWidth: 2,
+	                    tension: 0.2,
+	                    fill: false
+	                }
+	            ]
+	        },
+	        options: {
+	            responsive: true,
+	            plugins: {
+	                legend: {
+	                    display: true
+	                },
+	                title: {
+	                    display: true,
+	                    text: 'Andamento temperatura e smoothing con media mobile'
+	                }
+	            },
+	            scales: {
+	                x: {
+	                    title: {
+	                        display: true,
+	                        text: 'Timestamp'
+	                    }
+	                },
+	                y: {
+	                    title: {
+	                        display: true,
+	                        text: 'Temperatura'
+	                    }
+	                }
+	            }
+	        }
+	    });
+	</script>
+	
     <h2>Comandi</h2>
     <table border="1">
         <thead>
@@ -178,9 +264,7 @@
 	    <button type="submit">Invia comando</button>
 	</form>
 	
-	<h2>Comando rapido</h2>
-	<form th:action="@{/devices-page/{id}/force-measurement(id=${deviceId})}" method="post">
-	    <button type="submit">Richiedi misura immediata</button>
-	</form>
+
+	
 </body>
 </html>
