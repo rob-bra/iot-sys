@@ -103,7 +103,19 @@ public class PendingCommandResponse {
         return status;
     }
 
-    /**
+    public void setId(Long id) {
+		this.id = id;
+	}
+
+	public void setType(String type) {
+		this.type = type;
+	}
+
+	public void setPayload(String payload) {
+		this.payload = payload;
+	}
+
+	/**
      * Returns the timestamp when the command was created.
      *
      * @return The creation timestamp.
