@@ -3,6 +3,7 @@ package com.example.iot.controller;
 import com.example.iot.dto.CommandRequest;
 import com.example.iot.dto.ThresholdRequest;
 import com.example.iot.service.AlertService;
+import com.example.iot.service.AnalyticsService;
 import com.example.iot.service.CommandService;
 import com.example.iot.service.DeviceService;
 import com.example.iot.service.TelemetryService;
@@ -10,6 +11,7 @@ import com.example.iot.service.ThresholdService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import com.example.iot.service.AnalyticsService;
 
 /**
  * Controller MVC responsabile della navigazione web della dashboard.
@@ -26,6 +28,7 @@ public class DashboardController {
 	private final AlertService alertService;
 	private final ThresholdService thresholdService;
 	private final CommandService commandService;
+	private final AnalyticsService analyticsService;
 
 	/**
 	 * Costruisce il controller della dashboard inizializzando i servizi
@@ -38,12 +41,13 @@ public class DashboardController {
 	 * @param commandService servizio per la gestione dei comandi remoti
 	 */
 	public DashboardController(DeviceService deviceService, TelemetryService telemetryService,
-			AlertService alertService, ThresholdService thresholdService, CommandService commandService) {
+			AlertService alertService, ThresholdService thresholdService, CommandService commandService, AnalyticsService analyticsService) {
 		this.deviceService = deviceService;
 		this.telemetryService = telemetryService;
 		this.alertService = alertService;
 		this.thresholdService = thresholdService;
 		this.commandService = commandService;
+		this.analyticsService = analyticsService;
 	}
 
 	/**
@@ -77,13 +81,24 @@ public class DashboardController {
 	 * @return il nome del template Thymeleaf della pagina di dettaglio dispositivo
 	 */
 	@GetMapping("/devices-page/{deviceId}")
-	public String deviceDetailPage(@PathVariable String deviceId, Model model) {
+	public String deviceDetailPage(@PathVariable String deviceId,
+	                               @RequestParam(defaultValue = "5") int windowSize,
+	                               Model model) {
 		model.addAttribute("deviceId", deviceId);
 		model.addAttribute("latestTelemetry", telemetryService.getLatestTelemetryByDeviceId(deviceId));
 		model.addAttribute("measurements", telemetryService.getTelemetryByDeviceId(deviceId));
 		model.addAttribute("alerts", alertService.getAlertsByDeviceId(deviceId));
 		model.addAttribute("thresholds", thresholdService.getThresholds(deviceId));
 		model.addAttribute("commands", commandService.getCommandsByDeviceId(deviceId));
+
+		model.addAttribute("temperatureMovingAverage",
+				analyticsService.getMovingAverage(deviceId, "temperature", windowSize));
+		model.addAttribute("humidityMovingAverage",
+				analyticsService.getMovingAverage(deviceId, "humidity", windowSize));
+		model.addAttribute("pressureMovingAverage",
+				analyticsService.getMovingAverage(deviceId, "pressure", windowSize));
+		model.addAttribute("movingAverageWindowSize", windowSize);
+
 		return "device-detail";
 	}
 

@@ -111,6 +111,31 @@
         </tbody>
     </table>
 
+	<h2>Configurazione media mobile</h2>
+	<form th:action="@{/devices-page/{id}(id=${deviceId})}" method="get">
+	    <label>Dimensione finestra:</label>
+	    <input type="number" name="windowSize" min="1" th:value="${movingAverageWindowSize}">
+	    <button type="submit">Aggiorna media mobile</button>
+	</form>
+
+	<h2 th:text="'Media mobile temperatura (finestra = ' + ${movingAverageWindowSize} + ')'"></h2>
+	<table border="1">
+	    <thead>
+	        <tr>
+	            <th>Timestamp</th>
+	            <th>Valore originale</th>
+	            <th>Media mobile</th>
+	        </tr>
+	    </thead>
+	    <tbody>
+	        <tr th:each="p : ${temperatureMovingAverage}">
+	            <td th:text="${p.timestamp}">time</td>
+	            <td th:text="${p.originalValue}">24.5</td>
+	            <td th:text="${p.movingAverage}">24.1</td>
+	        </tr>
+	    </tbody>
+	</table>
+	
     <h2>Comandi</h2>
     <table border="1">
         <thead>
