@@ -1,0 +1,153 @@
+**************************
+*  Domain class Diagram  *
+**************************
+@startuml
+title Domain Class Diagram - IoT Monitoring System
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+class Device {
+  -deviceId : String
+  -status : DeviceStatus
+  -battery : Integer
+  -lastSeen : String
+}
+
+class Telemetry {
+  -id : Long
+  -timestamp : String
+  -temperature : double
+  -humidity : double
+  -pressure : double
+  -battery : Integer
+  -orientation : OrientationState
+}
+
+class Alert {
+  -id : Long
+  -timestamp : String
+  -type : AlertType
+  -measuredValue : Double
+  -thresholdValue : Double
+  -message : String
+}
+
+class ThresholdConfiguration {
+  -temperatureMin : Double
+  -temperatureMax : Double
+  -humidityMin : Double
+  -humidityMax : Double
+  -pressureMin : Double
+  -pressureMax : Double
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+}
+
+enum OrientationState {
+  STATIONARY_UPRIGHT
+  STATIONARY_NOT_UPRIGHT
+  IN_MOTION
+  SHAKEN
+}
+
+enum AlertType {
+  HIGH_TEMPERATURE
+  LOW_TEMPERATURE
+  HIGH_HUMIDITY
+  LOW_HUMIDITY
+  HIGH_PRESSURE
+  LOW_PRESSURE
+  IMPACT
+  FREE_FALL
+}
+
+
+Device "1" --> "0..*" Telemetry : produces
+Device "1" --> "0..*" Alert : generates
+Device "1" --> "0..1" ThresholdConfiguration : has
+
+Device --> DeviceStatus : status
+Telemetry --> OrientationState : orientation
+Alert --> AlertType : type
+
+
+@enduml
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+***************************
+*  Repository Interfaces  *
+***************************
+@startuml
+title Repository Interfaces - IoT Monitoring System
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+
+interface TelemetryRepositoryIf {
+  +saveTelemetry(telemetry : TelemetryRequest) : void
+  +findAllTelemetry() : List<Map<String,Object>>
+  +findTelemetryByDeviceId(deviceId : String) : List<Map<String,Object>>
+  +findLatestTelemetryByDeviceId(deviceId : String) : Map<String,Object>
+}
+
+interface DeviceRepositoryIf {
+  +upsertDevice(deviceId : String, battery : Integer, lastSeen : String) : void
+  +findAllDevices() : List<Map<String,Object>>
+}
+
+interface AlertRepositoryIf {
+  +saveAlert(deviceId : String, timestamp : String, type : String, measuredValue : Double, thresholdValue : Double, message : String) : void
+  +findAllAlerts() : List<Map<String,Object>>
+  +findAlertsByDeviceId(deviceId : String) : List<Map<String,Object>>
+}
+
+interface ThresholdRepositoryIf {
+  +upsertThresholds(deviceId : String, request : ThresholdRequest) : void
+  +findThresholdsByDeviceId(deviceId : String) : Map<String,Object>
+}
+@enduml
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+************************
+*  Service Interfaces  *
+************************
+
+@startuml
+title Service Interfaces - IoT Monitoring System
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+
+interface TelemetryServiceIf {
+  +saveTelemetry(telemetryRequest : TelemetryRequest) : void
+  +getAllTelemetry() : List<Map<String,Object>>
+  +getTelemetryByDeviceId(deviceId : String) : List<Map<String,Object>>
+  +getLatestTelemetryByDeviceId(deviceId : String) : Map<String,Object>
+}
+
+interface DeviceServiceIf {
+  +getAllDevices() : List<Map<String,Object>>
+}
+
+interface AlertServiceIf {
+  +evaluateAlerts(telemetry : TelemetryRequest) : void
+  +getAllAlerts() : List<Map<String,Object>>
+  +getAlertsByDeviceId(deviceId : String) : List<Map<String,Object>>
+}
+
+interface ThresholdServiceIf {
+  +saveThresholds(deviceId : String, request : ThresholdRequest) : void
+  +getThresholds(deviceId : String) : Map<String,Object>
+}
+@enduml

@@ -1,0 +1,187 @@
+1) Sequence Diagram — Invio telemetria
+Questo è probabilmente il più importante del progetto.
+
+  Cosa rappresenta:
+  - il device invia la telemetria al backend
+  - il backend la salva
+  - aggiorna lo stato del device
+  - controlla le soglie
+  - se necessario genera uno o più allarmi  
+  
+  Codce PlantUML:
+@startuml
+title Sequence Diagram - Telemetry Submission and Alert Evaluation
+
+actor "IoT Device" as Device
+participant "TelemetryController" as TC
+participant "TelemetryService" as TS
+participant "TelemetryRepository" as TR
+participant "DeviceRepository" as DR
+participant "AlertService" as AS
+participant "ThresholdRepository" as ThrR
+participant "AlertRepository" as AR
+database "SQLite DB" as DB
+
+Device -> TC : POST /api/v1/telemetry\nTelemetryRequest
+TC -> TS : saveTelemetry(request)
+
+TS -> TR : saveTelemetry(request)
+TR -> DB : INSERT INTO telemetry(...)
+DB --> TR : ok
+TR --> TS : ok
+
+TS -> DR : upsertDevice(deviceId, battery, timestamp)
+DR -> DB : INSERT/UPDATE devices(...)
+DB --> DR : ok
+DR --> TS : ok
+
+TS -> AS : evaluateAlerts(request)
+AS -> ThrR : findThresholdsByDeviceId(deviceId)
+ThrR -> DB : SELECT * FROM thresholds WHERE device_id = ?
+DB --> ThrR : thresholds / null
+ThrR --> AS : thresholds / null
+
+alt "Thresholds configured"
+  alt "Temperature out of range"
+    AS -> AR : saveAlert(..., "LOW/HIGH_TEMPERATURE", ...)
+    AR -> DB : INSERT INTO alerts(...)
+    DB --> AR : ok
+    AR --> AS : ok
+  end
+
+  alt "Humidity out of range"
+    AS -> AR : saveAlert(..., "LOW/HIGH_HUMIDITY", ...)
+    AR -> DB : INSERT INTO alerts(...)
+    DB --> AR : ok
+    AR --> AS : ok
+  end
+
+  alt "Pressure out of range"
+    AS -> AR : saveAlert(..., "LOW/HIGH_PRESSURE", ...)
+    AR -> DB : INSERT INTO alerts(...)
+    DB --> AR : ok
+    AR --> AS : ok
+  end
+else "No thresholds configured"
+  AS --> TS : no alert generated
+end
+
+AS --> TS : evaluation completed
+TS --> TC : ok
+TC --> Device : 200 OK\n{status:"ok", message:"Telemetry saved successfully"}
+@enduml
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+2) Sequence Diagram — Configurazione soglie
+  Cosa rappresenta:
+  - la dashboard web imposta o aggiorna le soglie
+  - il backend salva la configurazione nel DB
+
+Questo è utile perché mostra bene il flusso dashboard → backend → DB.
+
+Codice PlantUML:
+@startuml
+title Sequence Diagram - Threshold Configuration
+
+actor "Dashboard User" as User
+participant "ThresholdController" as TC
+participant "ThresholdService" as TS
+participant "ThresholdRepository" as TR
+database "SQLite DB" as DB
+
+User -> TC : PUT /api/v1/devices/{deviceId}/thresholds\nThresholdRequest
+TC -> TS : saveThresholds(deviceId, request)
+TS -> TR : upsertThresholds(deviceId, request)
+TR -> DB : INSERT ... ON CONFLICT DO UPDATE
+DB --> TR : ok
+TR --> TS : ok
+TS --> TC : ok
+TC --> User : 200 OK\n{status:"ok", message:"Thresholds saved successfully"}
+@enduml
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+3) Sequence Diagram — Comando remoto completo
+Questo è molto importante perché il tuo sistema ha una logica interessante:
+
+  Cosa rappresenta:
+  - la dashboard crea un comando
+  - il backend lo salva come PENDING
+  - il device fa polling
+  - riceve i comandi pendenti
+  - esegue il comando
+  - invia l’ack
+  - il backend aggiorna lo stato del comando
+
+Codice PlantUML:
+
+@startuml
+title Sequence Diagram - Remote Command Lifecycle
+
+actor "Dashboard User" as User
+participant "CommandController" as CC
+participant "CommandService" as CS
+participant "CommandRepository" as CR
+participant "IoT Device" as Device
+database "SQLite DB" as DB
+
+== Command creation from dashboard ==
+
+User -> CC : POST /api/v1/devices/{deviceId}/commands\nCommandRequest
+CC -> CS : createCommand(deviceId, request)
+CS -> CR : createCommand(deviceId, request, createdAt)
+CR -> DB : INSERT INTO commands(..., status='PENDING', ...)
+DB --> CR : ok
+CR --> CS : ok
+CS --> CC : ok
+CC --> User : 200 OK\n{status:"ok", message:"Command created successfully"}
+
+== Device polling pending commands ==
+
+Device -> CC : GET /api/v1/devices/{deviceId}/commands/pending
+CC -> CS : getPendingCommandDtosByDeviceId(deviceId)
+CS -> CR : findPendingCommandsByDeviceId(deviceId)
+CR -> DB : SELECT * FROM commands WHERE device_id=? AND status='PENDING'
+DB --> CR : pending command rows
+CR --> CS : rows
+CS --> CC : List<PendingCommandResponse>
+CC --> Device : 200 OK\npending commands
+
+== Command acknowledgement ==
+
+Device -> CC : POST /api/v1/devices/{deviceId}/commands/{commandId}/ack\nCommandAckRequest
+CC -> CS : ackCommand(commandId, request)
+CS -> CR : ackCommand(commandId, request)
+CR -> DB : UPDATE commands SET status=?, ack_at=?, result_message=? WHERE id=?
+DB --> CR : ok
+CR --> CS : ok
+CS --> CC : ok
+CC --> Device : 200 OK\n{status:"ok", message:"Command acknowledged successfully"}
+@enduml
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+4) Consultazione dati da dashboard
+Cosa fa: la dashboard richiede ultima telemetria di un device. quindi il diagramma mostra un interazione del sistema tramite dashboard
+
+Codice PlantUML:
+
+@startuml
+title Sequence Diagram - Retrieve Latest Device Telemetry
+
+actor "Dashboard User" as User
+participant "TelemetryController" as TC
+participant "TelemetryService" as TS
+participant "TelemetryRepository" as TR
+database "SQLite DB" as DB
+
+User -> TC : GET /api/v1/devices/{deviceId}/latest
+TC -> TS : getLatestTelemetryByDeviceId(deviceId)
+TS -> TR : findLatestTelemetryByDeviceId(deviceId)
+TR -> DB : SELECT * FROM telemetry WHERE device_id=? ORDER BY id DESC LIMIT 1
+DB --> TR : latest telemetry row / null
+TR --> TS : latest telemetry row / null
+TS --> TC : Map<String, Object>
+TC --> User : 200 OK\nlatest telemetry
+@enduml
