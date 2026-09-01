@@ -25,7 +25,7 @@ Il backend:
 - riceve le telemetrie
 - le salva in un database **SQLite**
 - genera eventuali allarmi in caso di superamento soglie
-- espone API REST
+- espone le API REST
 - ospita una dashboard web per la visualizzazione e il controllo del sistema
 
 ---
@@ -38,12 +38,12 @@ Il backend:
 - polling dei comandi remoti pendenti
 - esecuzione del comando `FORCE_MEASUREMENT`
 - invio acknowledgement dei comandi eseguiti
-- gestione interna tramite **task FreeRTOS**, **coda eventi**, **event buffer** e **macchina a stati HTTP**
+- gestione interna tramite **task FreeRTOS**, **coda eventi** e **macchina a stati**
 
 ### Backend Spring Boot
 - ricezione telemetria via endpoint REST
 - persistenza dati in SQLite
-- gestione dispositivi
+- gestione dei dispositivi
 - configurazione soglie
 - generazione allarmi
 - gestione comandi remoti
@@ -51,7 +51,7 @@ Il backend:
 - calcolo della **media mobile** per la visualizzazione dei trend storici
 
 ### Dashboard web
-- visualizzazione elenco dispositivi
+- visualizzazione elenco dei dispositivi
 - dettaglio del singolo dispositivo
 - consultazione storico misure
 - visualizzazione allarmi
@@ -111,11 +111,11 @@ Il firmware sulla board è invece strutturato in task concorrenti e logica a eve
 ## Struttura del progetto
 
 ```text
-iot-monitoring-system/
-├── firmware/                  # Firmware C per STEVAL-NBIOTV1
-├── backend/                   # Backend Spring Boot
+iot-sys/
+├── Firmware/                   # Firmware C per STEVAL-NBIOTV1
+├── Test/                       # Screen dei test effettuati con CodeMR e JUnit
+├── iot/                        # Backend Spring Boot                   
 │   ├── src/main/java/
 │   ├── src/main/resources/
 │   └── pom.xml
-├── docs/                      # Documentazione, diagrammi UML, PDF progetto
 └── README.md
