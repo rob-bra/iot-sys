@@ -1,0 +1,58 @@
+@startuml
+title Service Interfaces - IoT Monitoring System
+
+top to bottom direction
+skinparam classAttributeIconSize 0
+
+interface TelemetryServiceIf {
+  +saveTelemetry(telemetryRequest : TelemetryRequest) : void
+  +getAllTelemetry() : List<Map<String,Object>>
+  +getTelemetryByDeviceId(deviceId : String) : List<Map<String,Object>>
+  +getLatestTelemetryByDeviceId(deviceId : String) : Map<String,Object>
+}
+
+interface DeviceServiceIf {
+  +getAllDevices() : List<Map<String,Object>>
+}
+
+interface AlertServiceIf {
+  +evaluateAlerts(telemetry : TelemetryRequest) : void
+  +getAllAlerts() : List<Map<String,Object>>
+  +getAlertsByDeviceId(deviceId : String) : List<Map<String,Object>>
+}
+
+interface ThresholdServiceIf {
+  +saveThresholds(deviceId : String, request : ThresholdRequest) : void
+  +getThresholds(deviceId : String) : Map<String,Object>
+}
+
+interface CommandServiceIf {
+  +createCommand(deviceId : String, request : CommandRequest) : void
+  +getCommandsByDeviceId(deviceId : String) : List<Map<String,Object>>
+  +getPendingCommandsByDeviceId(deviceId : String) : List<Map<String,Object>>
+  +ackCommand(commandId : Long, ackRequest : CommandAckRequest) : void
+}
+
+interface AnalyticsServiceIf {
+  +getMovingAverage(deviceId : String, metric : String, windowSize : int) : List<MovingAveragePoint>
+}
+
+' livello 1 in orizzontale
+TelemetryServiceIf -[hidden]right- DeviceServiceIf
+
+' livello 2 in orizzontale
+AlertServiceIf -[hidden]right- ThresholdServiceIf
+ThresholdServiceIf -[hidden]right- CommandServiceIf
+
+' livello 3
+' Analytics da solo
+
+' collegamenti verticali tra livelli
+TelemetryServiceIf -[hidden]down-> AlertServiceIf
+DeviceServiceIf -[hidden]down-> CommandServiceIf
+
+AlertServiceIf -[hidden]down-> AnalyticsServiceIf
+ThresholdServiceIf -[hidden]down-> AnalyticsServiceIf
+CommandServiceIf -[hidden]down-> AnalyticsServiceIf
+
+@enduml

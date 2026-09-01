@@ -1,0 +1,53 @@
+@startuml
+title API Data Model - DTO Class Diagram
+
+skinparam classAttributeIconSize 0
+
+class TelemetryRequest <<DTO>> {
+  -deviceId : String
+  -timestamp : String
+  -temperature : double
+  -humidity : double
+  -pressure : double
+  -battery : Integer
+  -orientation : String
+}
+
+class ThresholdRequest <<DTO>> {
+  -temperatureMin : Double
+  -temperatureMax : Double
+  -humidityMin : Double
+  -humidityMax : Double
+  -pressureMin : Double
+  -pressureMax : Double
+}
+
+class CommandRequest <<DTO>> {
+  -type : String
+  -payload : String
+}
+
+class CommandAckRequest <<DTO>> {
+  -status : String
+  -ackAt : String
+  -resultMessage : String
+}
+
+class PendingCommandResponse <<DTO>> {
+  -id : Long
+  -deviceId : String
+  -type : String
+  -payload : String
+  -status : String
+  -createdAt : String
+  -ackAt : String
+  -resultMessage : String
+}
+
+class MovingAveragePoint <<DTO>> {
+  -timestamp : String
+  -originalValue : Double
+  -movingAverage : Double
+}
+
+@enduml

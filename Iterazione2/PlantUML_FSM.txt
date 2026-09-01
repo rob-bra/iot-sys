@@ -1,0 +1,40 @@
+@startuml
+title Firmware Embedded - Flusso Generale
+
+start
+:"AppInit()";
+:"Creazione di xDataQueue";
+fork
+  :"Avvio HTTPTask";
+fork again
+  :"Avvio SensorsDataTask";
+end fork
+
+:"Registrazione modem NB-IoT";
+:"Sincronizzazione tempo e aggiornamento RTC";
+:"Generazione evento iniziale eEventFirst";
+
+repeat
+  :"Attesa evento in xDataQueue";
+  if ("Evento valido?") then ("Sì")
+    :"Lettura sensori";
+    :"Creazione struttura SensorsData";
+    :"Push nell'EventBuffer";
+    :"Prelievo evento da parte di HTTPTask";
+    :"Costruzione JSON telemetria";
+    :"HTTP POST verso /api/v1/telemetry";
+    :"Polling HTTP GET verso /api/v1/devices/{deviceId}/commands/pending";
+    if ("Comando FORCE_MEASUREMENT presente?") then ("Sì")
+      :"Generazione evento eEventForceMeasurement";
+      :"Nuova acquisizione immediata";
+      :"Invio telemetria forzata";
+      :"HTTP POST ACK verso /api/v1/devices/{deviceId}/commands/{commandId}/ack";
+    endif
+    :"Riarmo timer periodico";
+  else ("No")
+    :"Ignora evento";
+  endif
+repeat while ("Firmware attivo")
+
+stop
+@enduml

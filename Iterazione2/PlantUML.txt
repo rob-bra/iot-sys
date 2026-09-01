@@ -1,0 +1,114 @@
+1) Creazione comando da dashboard
+
+@startuml
+title Sequence Diagram - Creazione del comando remoto "FORCE_MEASUREMENT"
+
+actor "Utente" as User
+boundary "Dashboard Web UI" as Dashboard
+control "CommandController" as CommandController
+control "CommandService" as CommandService
+database "CommandRepository" as CommandRepository
+database "SQLite DB" as DB
+
+User -> Dashboard : Click su "Richiedi misura immediata"
+Dashboard -> CommandController : POST "/api/v1/devices/DEV001/commands"\n{type:"FORCE_MEASUREMENT", payload:"immediate"}
+
+activate CommandController
+CommandController -> CommandService : createCommand("DEV001", CommandRequest)
+activate CommandService
+
+CommandService -> CommandService : valorizza createdAt
+CommandService -> CommandRepository : createCommand("DEV001", request, createdAt)
+activate CommandRepository
+
+CommandRepository -> DB : INSERT command\nstatus = "PENDING"
+activate DB
+DB --> CommandRepository : conferma inserimento
+deactivate DB
+
+CommandRepository --> CommandService : ok
+deactivate CommandRepository
+
+CommandService --> CommandController : ok
+deactivate CommandService
+
+CommandController --> Dashboard : HTTP 200 OK\n{status:"ok", message:"Command created successfully"}
+deactivate CommandController
+
+Dashboard --> User : Notifica creazione comando
+@enduml
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+2) Polling, esecuzione e ACK
+
+@startuml
+title Sequence Diagram - Polling, esecuzione e ACK del comando "FORCE_MEASUREMENT"
+
+box "STEVAL-NBIOTV1 Device" #DDEEFF
+participant "Firmware HTTPTask" as Firmware
+participant "Sensor Acquisition" as Sensors
+end box
+
+box "Raspberry Pi5 - Spring Boot Backend" #E8E8E8
+control "CommandController" as CommandController
+control "CommandService" as CommandService
+database "CommandRepository / SQLite DB" as CommandDB
+control "TelemetryController" as TelemetryController
+control "TelemetryService" as TelemetryService
+database "TelemetryRepository / SQLite DB" as TelemetryDB
+end box
+
+Firmware -> CommandController : GET "/api/v1/devices/DEV001/commands/pending"
+activate CommandController
+CommandController -> CommandService : getPendingCommands("DEV001")
+activate CommandService
+CommandService -> CommandDB : read pending commands
+activate CommandDB
+CommandDB --> CommandService : [{id=1, type="FORCE_MEASUREMENT"}]
+deactivate CommandDB
+CommandService --> CommandController : pending commands
+deactivate CommandService
+CommandController --> Firmware : HTTP 200 OK\n[{id:1, type:"FORCE_MEASUREMENT"}]
+deactivate CommandController
+
+Firmware -> Firmware : parse risposta e riconosce\n"FORCE_MEASUREMENT"
+Firmware -> Sensors : trigger misura immediata
+activate Sensors
+Sensors --> Firmware : dati sensori acquisiti
+deactivate Sensors
+
+Firmware -> TelemetryController : POST "/api/v1/telemetry"\nTelemetryRequest
+activate TelemetryController
+TelemetryController -> TelemetryService : saveTelemetry(request)
+activate TelemetryService
+TelemetryService -> TelemetryDB : save telemetry
+activate TelemetryDB
+TelemetryDB --> TelemetryService : ok
+deactivate TelemetryDB
+TelemetryService --> TelemetryController : ok
+deactivate TelemetryService
+TelemetryController --> Firmware : HTTP 200 OK
+deactivate TelemetryController
+
+Firmware -> CommandController : POST "/api/v1/devices/DEV001/commands/1/ack"\n{status:"EXECUTED", ...}
+activate CommandController
+CommandController -> CommandService : ackCommand(1, ackRequest)
+activate CommandService
+CommandService -> CommandDB : update status = EXECUTED
+activate CommandDB
+CommandDB --> CommandService : ok
+deactivate CommandDB
+CommandService --> CommandController : ok
+deactivate CommandService
+CommandController --> Firmware : HTTP 200 OK
+deactivate CommandController
+
+@enduml
+
+
+
+
