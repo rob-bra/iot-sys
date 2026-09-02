@@ -108,9 +108,7 @@ Il firmware sulla board è invece strutturato in task concorrenti e logica a eve
 
 ---
 
-## Installazione e uso
-
-### Avvio backend e accesso da web browser
+## Avvio backend e accesso da web browser
 
 Il backend **Spring Boot** può essere avviato mediante l'esecuzione del file `jar` generato con **Maven**. In particolare:
 
@@ -145,5 +143,4 @@ iot-sys/
 │   └── pom.xml
 └── README.md
 
----
 
