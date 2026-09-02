@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.example.iot.dto.TelemetryRequest;
 import com.example.iot.service.TelemetryService;
-import com.fasterxml.jackson.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;

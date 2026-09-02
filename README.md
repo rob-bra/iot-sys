@@ -135,12 +135,16 @@ Il backend **Spring Boot** può essere avviato mediante l'esecuzione del file `j
 
 ```text
 iot-sys/
-├── Firmware/                   # Firmware C per STEVAL-NBIOTV1
-├── Test/                       # Screen dei test effettuati con CodeMR e JUnit
-├── iot/                        # Backend Spring Boot                   
-│   ├── src/main/java/
-│   ├── src/main/resources/
-│   └── pom.xml
+├── Firmware/                       # Firmware C per STEVAL-NBIOTV1
+├── Test/                           # Screen dei test effettuati con CodeMR e JUnit
+├── iot/                            # Backend Spring Boot                   
+|   ├── src/main/java/
+|   ├── src/main/resources/
+|   |   └── schema.sql              # Database
+|   ├── src/test/java/              # JUnit test
+|   ├── codemr/                     # codemr test
+|   └── pom.xml
+├── doc.zip                         # javadoc
 └── README.md
 
 

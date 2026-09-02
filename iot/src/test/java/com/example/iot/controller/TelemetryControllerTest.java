@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import com.example.iot.dto.TelemetryRequest;
 import com.example.iot.service.TelemetryService;
-import com.fasterxml.jackson.*;
 
 import tools.jackson.databind.ObjectMapper;
 
