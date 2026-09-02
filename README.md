@@ -121,8 +121,7 @@ In particolare i passaggi per la generazione del file è la seguente:
     ```bash
     mvn clean package
 
-- sul backend, invece, si va ad eseguire il **jar** file da terminale che avvierà l’applicazione **Spring Boot** mostrando 
-  in tempo reale l’esito e le informazioni di qualsiasi interazione col sistema. Il comando da terminale per farlo:
+- sul backend, invece, si va ad eseguire il **jar** file da terminale che avvierà l’applicazione **Spring Boot**, tramite il comando:
 
     ```bash
     java-jar iot-v1.jar
