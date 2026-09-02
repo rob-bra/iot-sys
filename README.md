@@ -119,14 +119,14 @@ Il backend **Spring Boot** può essere avviato mediante l'esecuzione del file `j
     ```bash
     mvn clean package
 
--  sul backend, invece, si va ad eseguire il **jar** file da terminale tramite il comando:
+- sul backend, invece, si va ad eseguire il **jar** file da terminale che avvierà l’applicazione **Spring Boot** mostrando 
+  in tempo reale l’esito e le informazioni di qualsiasi interazione col sistema. Il comando da terminale per farlo:
 
     ```bash
     java-jar iot-sys.jar
 
-   verrà eseguita l’applicazione **Spring Boot** mostrando in tempo reale l’esito e le informazioni di qualsiasi interazione col sistema.
-
-Per accedere alla web dashboard invece `e sufficiente aprire il browser e navigare al seguente indirizzo locale in ascolto sulla porta **8080**:
+- per accedere alla web dashboard invece è sufficiente aprire il browser e navigare al seguente indirizzo locale in ascolto 
+  sulla porta **8080**:
 
     ```bash
     http://localhost:8080
