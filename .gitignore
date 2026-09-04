@@ -8,9 +8,9 @@
 **/*.class
 **/*.log
 
-# Eccezione: consenti il target del modulo iot
+# Consenti il modulo iot
 !iot/target/
-!iot/target/*.jar
+!iot/target/**
 
 # ===== Eclipse =====
 **/.project

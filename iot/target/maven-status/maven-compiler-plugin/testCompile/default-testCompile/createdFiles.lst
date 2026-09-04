@@ -1,0 +1,11 @@
+com\example\iot\controller\CommandControllerTest.class
+com\example\iot\controller\DeviceControllerTest.class
+com\example\iot\IotApplicationTests.class
+com\example\iot\service\impl\DeviceServiceImplTest.class
+com\example\iot\service\impl\CommandServiceImplTest.class
+com\example\iot\controller\AlertControllerTest.class
+com\example\iot\controller\TelemetryControllerTest.class
+com\example\iot\service\impl\TelemetryServiceImplTest.class
+com\example\iot\service\impl\ThresholdServiceImplTest.class
+com\example\iot\service\impl\AlertServiceImplTest.class
+com\example\iot\controller\ThresholdControllerTest.class

@@ -5,15 +5,12 @@
 #!**/src/test/**/target/
 
 HELP.md
-target/*
 .mvn/wrapper/maven-wrapper.jar
 
-# Consenti solo i jar dentro target
-!target/*.jar
+# Non ignorare target locale
+!target/
+!target/**
 
-# Se vuoi mantenere anche queste eccezioni
-!**/src/main/**/target/
-!**/src/test/**/target/
 
 ### STS ###
 .apt_generated

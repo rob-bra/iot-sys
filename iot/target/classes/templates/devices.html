@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Devices</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+    <h1>Elenco dispositivi</h1>
+
+    <p><a th:href="@{/}">Torna alla home</a></p>
+
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Device ID</th>
+                <th>Stato</th>
+                <th>Batteria</th>
+                <th>Last Seen</th>
+                <th>Dettaglio</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="device : ${devices}">
+                <td th:text="${device.device_id}">DEV001</td>
+                <td th:text="${device.status}">ONLINE</td>
+                <td th:text="${device.battery}">80</td>
+                <td th:text="${device.last_seen}">timestamp</td>
+                <td>
+                    <a th:href="@{/devices-page/{id}(id=${device.device_id})}">Apri</a>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>

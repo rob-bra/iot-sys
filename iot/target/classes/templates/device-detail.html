@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Device Detail</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1 th:text="'Dettaglio dispositivo: ' + ${deviceId}">Dettaglio dispositivo</h1>
+
+    <p>
+        <a th:href="@{/}">Home</a> |
+        <a th:href="@{/devices-page}">Torna ai dispositivi</a>
+    </p>
+
+    <h2>Ultima misura</h2>
+    <div th:if="${latestTelemetry != null}">
+        <p><b>Timestamp:</b> <span th:text="${latestTelemetry.timestamp}"></span></p>
+        <p><b>Temperatura:</b> <span th:text="${latestTelemetry.temperature}"></span></p>
+        <p><b>Umidità:</b> <span th:text="${latestTelemetry.humidity}"></span></p>
+        <p><b>Pressione:</b> <span th:text="${latestTelemetry.pressure}"></span></p>
+        <p><b>Batteria:</b> <span th:text="${latestTelemetry.battery}"></span></p>
+        <p><b>Orientamento:</b> <span th:text="${latestTelemetry.orientation}"></span></p>
+    </div>
+    <div th:if="${latestTelemetry == null}">
+        <p>Nessuna misura disponibile.</p>
+    </div>
+
+    <h2>Soglie</h2>
+    <div th:if="${thresholds != null}">
+        <p><b>Temperatura min:</b> <span th:text="${thresholds.temperature_min}"></span></p>
+        <p><b>Temperatura max:</b> <span th:text="${thresholds.temperature_max}"></span></p>
+        <p><b>Umidità min:</b> <span th:text="${thresholds.humidity_min}"></span></p>
+        <p><b>Umidità max:</b> <span th:text="${thresholds.humidity_max}"></span></p>
+        <p><b>Pressione min:</b> <span th:text="${thresholds.pressure_min}"></span></p>
+        <p><b>Pressione max:</b> <span th:text="${thresholds.pressure_max}"></span></p>
+    </div>
+    <div th:if="${thresholds == null}">
+        <p>Nessuna soglia configurata.</p>
+    </div>
+
+	<h2>Configura soglie</h2>
+	<form th:action="@{/devices-page/{id}/thresholds(id=${deviceId})}" method="post">
+	    <label>Temperatura Min:</label>
+	    <input type="number" step="0.1" name="temperatureMin"><br><br>
+
+	    <label>Temperatura Max:</label>
+	    <input type="number" step="0.1" name="temperatureMax"><br><br>
+
+	    <label>Umidità Min:</label>
+	    <input type="number" step="0.1" name="humidityMin"><br><br>
+
+	    <label>Umidità Max:</label>
+	    <input type="number" step="0.1" name="humidityMax"><br><br>
+
+	    <label>Pressione Min:</label>
+	    <input type="number" step="0.1" name="pressureMin"><br><br>
+
+	    <label>Pressione Max:</label>
+	    <input type="number" step="0.1" name="pressureMax"><br><br>
+
+	    <button type="submit">Salva soglie</button>
+	</form>
+	
+    <h2>Allarmi</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Tipo</th>
+                <th>Misurato</th>
+                <th>Threshold</th>
+                <th>Messaggio</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="alert : ${alerts}">
+                <td th:text="${alert.id}">1</td>
+                <td th:text="${alert.timestamp}">time</td>
+                <td th:text="${alert.type}">HIGH_TEMPERATURE</td>
+                <td th:text="${alert.measured_value}">30</td>
+                <td th:text="${alert.threshold_value}">26</td>
+                <td th:text="${alert.message}">msg</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Storico misure</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Temperatura</th>
+                <th>Umidità</th>
+                <th>Pressione</th>
+                <th>Batteria</th>
+                <th>Orientamento</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="m : ${measurements}">
+                <td th:text="${m.id}">1</td>
+                <td th:text="${m.timestamp}">time</td>
+                <td th:text="${m.temperature}">24</td>
+                <td th:text="${m.humidity}">50</td>
+                <td th:text="${m.pressure}">1008</td>
+                <td th:text="${m.battery}">80</td>
+                <td th:text="${m.orientation}">stable</td>
+            </tr>
+        </tbody>
+    </table>
+
+	<h2>Configurazione media mobile</h2>
+	<form th:action="@{/devices-page/{id}(id=${deviceId})}" method="get">
+	    <label>Dimensione finestra:</label>
+	    <input type="number" name="windowSize" min="1" th:value="${movingAverageWindowSize}">
+	    <button type="submit">Aggiorna media mobile</button>
+	</form>
+
+	<h2 th:text="'Media mobile temperatura (finestra = ' + ${movingAverageWindowSize} + ')'"></h2>
+	<table border="1">
+	    <thead>
+	        <tr>
+	            <th>Timestamp</th>
+	            <th>Valore originale</th>
+	            <th>Media mobile</th>
+	        </tr>
+	    </thead>
+	    <tbody>
+	        <tr th:each="p : ${temperatureMovingAverage}">
+	            <td th:text="${p.timestamp}">time</td>
+	            <td th:text="${p.originalValue}">24.5</td>
+	            <td th:text="${p.movingAverage}">24.1</td>
+	        </tr>
+	    </tbody>
+	</table>
+	
+	<h2 th:text="'Grafico temperatura e media mobile (finestra = ' + ${movingAverageWindowSize} + ')'"></h2>
+	<canvas id="temperatureChart" width="900" height="400"></canvas>
+	
+	<h2>Comando rapido</h2>
+	<form th:action="@{/devices-page/{id}/force-measurement(id=${deviceId})}" method="post">
+	    <button type="submit">Richiedi misura immediata</button>
+	</form>
+
+	<script th:inline="javascript">
+	    const temperatureLabels = [
+	        /*[# th:each="p, stat : ${temperatureMovingAverage}"]*/
+	            [[${p.timestamp}]]/*[(${!stat.last ? ',' : ''})]*/
+	        /*[/]*/
+	    ];
+
+	    const temperatureOriginalValues = [
+	        /*[# th:each="p, stat : ${temperatureMovingAverage}"]*/
+	            [[${p.originalValue}]]/*[(${!stat.last ? ',' : ''})]*/
+	        /*[/]*/
+	    ];
+
+	    const temperatureMovingAverageValues = [
+	        /*[# th:each="p, stat : ${temperatureMovingAverage}"]*/
+	            [[${p.movingAverage}]]/*[(${!stat.last ? ',' : ''})]*/
+	        /*[/]*/
+	    ];
+	</script>
+
+	<script>
+	    const ctx = document.getElementById('temperatureChart').getContext('2d');
+
+	    new Chart(ctx, {
+	        type: 'line',
+	        data: {
+	            labels: temperatureLabels,
+	            datasets: [
+	                {
+	                    label: 'Temperatura originale',
+	                    data: temperatureOriginalValues,
+	                    borderColor: 'rgba(255, 99, 132, 1)',
+	                    backgroundColor: 'rgba(255, 99, 132, 0.15)',
+	                    borderWidth: 2,
+	                    tension: 0.2,
+	                    fill: false
+	                },
+	                {
+	                    label: 'Media mobile',
+	                    data: temperatureMovingAverageValues,
+	                    borderColor: 'rgba(54, 162, 235, 1)',
+	                    backgroundColor: 'rgba(54, 162, 235, 0.15)',
+	                    borderWidth: 2,
+	                    tension: 0.2,
+	                    fill: false
+	                }
+	            ]
+	        },
+	        options: {
+	            responsive: true,
+	            plugins: {
+	                legend: {
+	                    display: true
+	                },
+	                title: {
+	                    display: true,
+	                    text: 'Andamento temperatura e smoothing con media mobile'
+	                }
+	            },
+	            scales: {
+	                x: {
+	                    title: {
+	                        display: true,
+	                        text: 'Timestamp'
+	                    }
+	                },
+	                y: {
+	                    title: {
+	                        display: true,
+	                        text: 'Temperatura'
+	                    }
+	                }
+	            }
+	        }
+	    });
+	</script>
+	
+    <h2>Comandi</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Tipo</th>
+                <th>Payload</th>
+                <th>Stato</th>
+                <th>Created At</th>
+                <th>Ack At</th>
+                <th>Risultato</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="cmd : ${commands}">
+                <td th:text="${cmd.id}">1</td>
+                <td th:text="${cmd.type}">FORCE_MEASUREMENT</td>
+                <td th:text="${cmd.payload}">immediate</td>
+                <td th:text="${cmd.status}">PENDING</td>
+                <td th:text="${cmd.created_at}">created</td>
+                <td th:text="${cmd.ack_at}">ack</td>
+                <td th:text="${cmd.result_message}">ok</td>
+            </tr>
+        </tbody>
+    </table>
+	
+	<h2>Invia comando remoto</h2>
+	<form th:action="@{/devices-page/{id}/commands(id=${deviceId})}" method="post">
+	    <label>Tipo comando:</label>
+	    <select name="type">
+	        <option value="FORCE_MEASUREMENT">FORCE_MEASUREMENT</option>
+	        <option value="SET_SAMPLING_PERIOD">SET_SAMPLING_PERIOD</option>
+	        <option value="RESET_DEVICE">RESET_DEVICE</option>
+	        <option value="ENABLE_EVENT_DETECTION">ENABLE_EVENT_DETECTION</option>
+	    </select><br><br>
+
+	    <label>Payload:</label>
+	    <input type="text" name="payload"><br><br>
+
+	    <button type="submit">Invia comando</button>
+	</form>
+	
+
+	
+</body>
+</html>
