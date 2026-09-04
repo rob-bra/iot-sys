@@ -1,7 +1,16 @@
 # ===== Java / Maven =====
-**/target/
+#**/target/
+#**/*.class
+#**/*.log
+
+# ===== Java / Maven =====
+**/target/*
 **/*.class
 **/*.log
+
+# Eccezione: consenti il target del modulo iot
+!iot/target/
+!iot/target/*.jar
 
 # ===== Eclipse =====
 **/.project
